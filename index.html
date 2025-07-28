@@ -1,0 +1,759 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Doctor Scheduling Algorithm</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f8fafc; }
+        .chart-container { position: relative; width: 100%; max-width: 800px; margin-left: auto; margin-right: auto; height: 400px; max-height: 50vh; }
+        .log-entry { animation: fadeIn 0.5s ease-in-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+        .loading-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(255, 255, 255, 0.9); display: flex; justify-content: center; align-items: center; z-index: 1000; flex-direction: column; gap: 1rem; }
+        .spinner { border: 4px solid rgba(0, 0, 0, 0.1); border-left-color: #0ea5e9; border-radius: 50%; width: 50px; height: 50px; animation: spin 1s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .text-xxs { font-size: 0.6rem; line-height: 0.75rem; }
+        .day-off-detail { font-size: 0.75rem; display: flex; align-items: center; justify-content: space-between; gap: 4px; padding: 2px 4px; background-color: rgba(0,0,0,0.05); border-radius: 4px; margin-top: 4px; }
+        .day-off-detail label { margin-left: 2px; margin-right: 6px; }
+        .remove-day-off { cursor: pointer; color: #ef4444; font-weight: bold; padding: 0 4px; }
+        .holiday-cell { background-color: #cffafe !important; /* cyan-100 */ }
+    </style>
+</head>
+<body class="text-slate-800">
+
+    <div class="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8">
+        <header class="text-center mb-10">
+            <h1 class="text-4xl font-bold text-slate-900">Doctor Scheduling Algorithm</h1>
+            <p class="mt-2 text-lg text-slate-600">An interactive visualization of how the scheduling logic works.</p>
+        </header>
+
+        <main class="space-y-12">
+            <!-- Section 1: Inputs -->
+            <section id="inputs-section">
+                <h2 class="text-2xl font-semibold mb-4 border-b pb-2">1. Initial Parameters</h2>
+                <div class="p-4 bg-white rounded-lg shadow">
+                    <p class="text-slate-600 mb-6">Define the month and year for the schedule, and customize each doctor's parameters. For "Days Off", select dates in the calendar, then specify if the time off is for the full day, morning, or afternoon.</p>
+                    
+                    <div class="mb-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label for="month-input" class="block text-sm font-medium text-slate-700">Month (1-12)</label>
+                            <input type="number" id="month-input" value="8" min="1" max="12" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-sky-500 focus:ring-sky-500 sm:text-sm p-2">
+                        </div>
+                        <div>
+                            <label for="year-input" class="block text-sm font-medium text-slate-700">Year</label>
+                            <input type="number" id="year-input" value="2025" min="2000" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-sky-500 focus:ring-sky-500 sm:text-sm p-2">
+                        </div>
+                        <div>
+                            <label for="num-unique-schedules-to-find-input" class="block text-sm font-medium text-slate-700">Number of Unique Schedules to Find</label>
+                            <input type="number" id="num-unique-schedules-to-find-input" value="25" min="1" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-sky-500 focus:ring-sky-500 sm:text-sm p-2">
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-6">
+                        <!-- Doctor Cards will be rendered here -->
+                    </div>
+
+                    <div class="mt-6 mb-4 flex items-center">
+                        <input type="checkbox" id="prioritize-double-shifts" class="mr-2 rounded border-gray-300 text-sky-600 shadow-sm focus:border-sky-500 focus:ring-sky-500">
+                        <label for="prioritize-double-shifts" class="text-sm font-medium text-slate-700">Enable Special Rules (e.g., Double Shift Preference/Avoidance)</label>
+                    </div>
+
+                    <div class="flex justify-center mt-8 space-x-4">
+                        <div class="flex items-center">
+                            <button id="save-params-btn" class="bg-green-600 text-white font-bold py-2 px-6 rounded-lg shadow-md hover:bg-green-700 transition-all transform hover:scale-105">Save Parameters</button>
+                            <input type="text" id="save-file-name-input" placeholder="schedule_params.json" value="schedule_params.json" class="ml-2 mt-1 block w-48 rounded-md border-gray-300 shadow-sm sm:text-sm p-1">
+                        </div>
+                        <div class="flex items-center">
+                            <button id="load-saved-params-btn" class="bg-purple-600 text-white font-bold py-2 px-6 rounded-lg shadow-md hover:bg-purple-700 transition-all transform hover:scale-105">Load Saved Parameters</button>
+                            <input type="file" id="load-file-input" accept=".json" class="ml-2 w-48 text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-violet-50 file:text-violet-700 hover:file:bg-violet-100">
+                        </div>
+                        <button id="load-params-btn" class="bg-blue-600 text-white font-bold py-2 px-6 rounded-lg shadow-md hover:bg-blue-700 transition-all transform hover:scale-105">Apply Loaded Parameters</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Section 2: Algorithm Visualization -->
+            <section id="algorithm-section">
+                <h2 class="text-2xl font-semibold mb-4 border-b pb-2">2. Generate Schedules</h2>
+                <div class="flex justify-center mb-8">
+                    <button id="generate-variants-btn" class="bg-sky-600 text-white font-bold py-3 px-8 rounded-lg shadow-md hover:bg-sky-700 transition-all transform hover:scale-105">Generate All Variants</button>
+                </div>
+                <div class="lg:grid lg:grid-cols-3 lg:gap-8">
+                    <div class="lg:col-span-1 space-y-4">
+                        <div class="p-4 bg-white rounded-lg shadow">
+                            <h3 class="font-bold text-lg">Algorithm Process</h3>
+                            <p class="text-slate-600 text-sm">The scheduling algorithm proceeds in steps: first, it initializes a blank schedule. Then, it applies hard constraints like "Days On" and "Days Off." Finally, it fills the remaining shifts using an iterative approach that balances workload and applies specific variant-dependent priorities.</p>
+                        </div>
+                        <div class="p-4 bg-gray-800 text-white rounded-lg shadow h-48 overflow-y-auto">
+                            <h3 class="font-bold text-lg mb-2">Algorithm Log</h3>
+                            <div id="log-content" class="text-sm font-mono space-y-1"></div>
+                        </div>
+                    </div>
+                    <div class="lg:col-span-2 mt-8 lg:mt-0">
+                        <div id="calendar-view" class="bg-white p-4 rounded-lg shadow overflow-x-auto"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Section 3: Final Output -->
+            <section id="output-section" class="hidden">
+                 <h2 class="text-2xl font-semibold mb-4 border-b pb-2">3. Final Schedule & Analysis</h2>
+                 <div id="variant-selection-controls" class="mb-6 hidden">
+                    <p class="text-slate-700 mb-2">Select a schedule variant to view:</p>
+                    <div class="flex flex-wrap gap-4"></div>
+                 </div>
+                 <div class="p-4 bg-white rounded-lg shadow">
+                    <p class="text-slate-600 mb-6">The algorithm has completed. The chart below shows the final shift distribution for each doctor, helping to quickly verify if the schedule is balanced and meets all core requirements.</p>
+                    <div class="chart-container"><canvas id="final-chart"></canvas></div>
+                    <div class="flex justify-center mt-6">
+                        <button id="save-current-variant-btn" class="bg-indigo-600 text-white font-bold py-2 px-6 rounded-lg shadow-md hover:bg-indigo-700 transition-all transform hover:scale-105">Print/Save Current Variant</button>
+                    </div>
+                 </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loading-overlay" class="loading-overlay hidden">
+        <div class="spinner"></div>
+        <p class="text-lg text-slate-700">Generating schedules...</p>
+        <p id="loading-progress" class="text-sm text-slate-500 font-semibold"></p>
+        <div class="mt-2 text-center text-sm text-slate-600 bg-slate-100 p-2 rounded-md border border-slate-200">
+            <p id="unique-variants-summary"></p>
+            <p id="avg-score-summary"></p>
+            <p id="highest-score-summary"></p>
+            <p id="avg-time-summary"></p>
+            <p id="elapsed-time-summary"></p>
+        </div>
+        <p id="current-generated-score-summary" class="text-sm text-slate-600 mt-2 font-medium"></p>
+        <p id="current-shifts-summary" class="text-sm text-slate-600"></p>
+        <div id="loading-mini-calendar" class="mt-4 text-xs overflow-x-auto max-h-48 w-full px-4"></div>
+        <button id="stop-generation-btn" class="mt-4 bg-red-600 text-white font-bold py-2 px-6 rounded-lg shadow-md hover:bg-red-700 transition-all transform hover:scale-105">Stop Generation</button>
+    </div>
+
+    <script type="module">
+        import "https://cdn.jsdelivr.net/npm/flatpickr";
+
+        const INTERNAL_ITERATIONS_PER_SCHEDULE_GEN = 1000;
+        const MAX_OVERALL_ATTEMPTS_FOR_UNIQUE_VARIANTS = 10000;
+        const DISPLAY_BEST_VARIANTS_LIMIT = 25;
+        const MAX_BADNESS_FOR_PERCENTAGE = 4000;
+
+        document.addEventListener('DOMContentLoaded', () => {
+            updateLog("Application initialized.");
+            init();
+        });
+
+        let DOCTORS_DATA = { 
+            'A': { name: 'Dr. M', color: 'bg-fuchsia-200', textColor: 'text-fuchsia-900', printBgColor: '#f5d0fe', printTextColor: '#701a75', min: 11, max: 13, daysOff: {}, daysOn: [], prefersDoubleShifts: true, avoidsDoubleShifts: false, hasMidMonthPreference: false },
+            'B': { name: 'Dr. J', color: 'bg-green-200', textColor: 'text-green-900', printBgColor: '#bbf7d0', printTextColor: '#14532d', min: 11, max: 13, daysOff: {}, daysOn: [], prefersDoubleShifts: true, avoidsDoubleShifts: false, hasMidMonthPreference: false },
+            'C': { name: 'Dr. B', color: 'bg-pink-200', textColor: 'text-pink-900', printBgColor: '#fbcfe8', printTextColor: '#831843', min: 11, max: 13, daysOff: {}, daysOn: [], prefersDoubleShifts: true, avoidsDoubleShifts: false, hasMidMonthPreference: false },
+            'D': { name: 'Dr. H', color: 'bg-orange-200', textColor: 'text-orange-900', printBgColor: '#fed7aa', printTextColor: '#7c2d12', min: 5, max: 6, daysOff: {}, daysOn: [], prefersDoubleShifts: false, avoidsDoubleShifts: true, hasMidMonthPreference: true },
+            'E': { name: 'Dr. L', color: 'bg-yellow-200', textColor: 'text-yellow-900', printBgColor: '#fef08a', printTextColor: '#713f12', min: 5, max: 6, daysOff: {}, daysOn: [], prefersDoubleShifts: false, avoidsDoubleShifts: true, hasMidMonthPreference: true }
+        };
+
+        let currentYear = 2025;
+        let currentMonth = 7;
+        let state = { schedule: {}, log: [] };
+        let ALL_GENERATED_VARIANTS = {}; 
+        let currentSelectedVariant = 'variant1';
+        let isGenerationCancelled = false;
+        let identifiedHolidays = [];
+
+        const dom = {
+            generateVariantsBtn: document.getElementById('generate-variants-btn'), stopGenerationBtn: document.getElementById('stop-generation-btn'),
+            loadParamsBtn: document.getElementById('load-params-btn'), saveParamsBtn: document.getElementById('save-params-btn'),
+            loadSavedParamsBtn: document.getElementById('load-saved-params-btn'), loadFileInput: document.getElementById('load-file-input'),
+            saveFileNameInput: document.getElementById('save-file-name-input'), logContent: document.getElementById('log-content'),
+            monthInput: document.getElementById('month-input'), yearInput: document.getElementById('year-input'),
+            numUniqueSchedulesToFindInput: document.getElementById('num-unique-schedules-to-find-input'), 
+            prioritizeDoubleShiftsCheckbox: document.getElementById('prioritize-double-shifts'), 
+            loadingOverlay: document.getElementById('loading-overlay'), loadingProgress: document.getElementById('loading-progress'),
+            currentGeneratedScoreSummary: document.getElementById('current-generated-score-summary'), 
+            currentShiftsSummary: document.getElementById('current-shifts-summary'), loadingMiniCalendar: document.getElementById('loading-mini-calendar'), 
+            saveCurrentVariantBtn: document.getElementById('save-current-variant-btn'), uniqueVariantsSummary: document.getElementById('unique-variants-summary'),
+            avgScoreSummary: document.getElementById('avg-score-summary'), highestScoreSummary: document.getElementById('highest-score-summary'),
+            avgTimeSummary: document.getElementById('avg-time-summary'), elapsedTimeSummary: document.getElementById('elapsed-time-summary')
+        };
+        
+        let enableSpecialRules = false; 
+        let NUM_UNIQUE_SCHEDULES_TO_FIND = 25;
+        let flatpickrInstances = {};
+
+        function init() {
+            renderDoctorInputCards(); 
+            dom.loadParamsBtn.addEventListener('click', loadInitialParameters);
+            dom.saveParamsBtn.addEventListener('click', saveParameters);
+            dom.loadSavedParamsBtn.addEventListener('click', () => dom.loadFileInput.click());
+            dom.loadFileInput.addEventListener('change', loadParametersFromFile);
+            dom.generateVariantsBtn.addEventListener('click', generateAllVariants);
+            dom.saveCurrentVariantBtn.addEventListener('click', saveCurrentVariant);
+            dom.stopGenerationBtn.addEventListener('click', () => { isGenerationCancelled = true; updateLog("Generation process cancelled by user..."); });
+        }
+
+        function parseDates(dateString) { return (dateString || '').split(',').map(s => s.trim()).filter(Boolean); }
+        
+        function renderDoctorInputCards() {
+            const container = document.querySelector('#inputs-section .grid.xl\\:grid-cols-5');
+            container.innerHTML = '';
+            Object.values(flatpickrInstances).forEach(instance => instance.destroy());
+            flatpickrInstances = {};
+
+            const onOpenHandler = (selectedDates, dateStr, instance) => {
+                instance.jumpToDate(new Date(parseInt(dom.yearInput.value), parseInt(dom.monthInput.value) - 1, 1));
+            };
+
+            Object.entries(DOCTORS_DATA).forEach(([id, data]) => {
+                const card = document.createElement('div');
+                card.className = `p-4 border rounded-lg ${data.color}`;
+                card.innerHTML = `
+                    <h4 class="font-bold ${data.textColor}">${data.name}</h4>
+                    <div class="mt-2 text-sm space-y-2">
+                        <div><label for="min-shifts-${id}" class="block text-xs font-medium">Min</label><input type="number" id="min-shifts-${id}" value="${data.min}" class="mt-1 block w-full rounded-md shadow-sm sm:text-xs p-1"></div>
+                        <div><label for="max-shifts-${id}" class="block text-xs font-medium">Max</label><input type="number" id="max-shifts-${id}" value="${data.max}" class="mt-1 block w-full rounded-md shadow-sm sm:text-xs p-1"></div>
+                        <div><label for="days-off-${id}" class="block text-xs font-medium">Days Off</label><input type="text" id="days-off-${id}" placeholder="Select dates..." class="flatpickr-input mt-1 block w-full rounded-md shadow-sm sm:text-xs p-1"></div>
+                        <div id="days-off-details-${id}" class="mt-2 space-y-1"></div>
+                        <div><label for="days-on-${id}" class="block text-xs font-medium">Days On</label><input type="text" id="days-on-${id}" value="${data.daysOn.join(', ')}" class="flatpickr-input mt-1 block w-full rounded-md shadow-sm sm:text-xs p-1"></div>
+                    </div>`;
+                container.appendChild(card);
+                renderDayOffDetails(id);
+                flatpickrInstances[`days-on-${id}`] = flatpickr(`#days-on-${id}`, { mode: "multiple", dateFormat: "Y-m-d", onOpen: onOpenHandler });
+                flatpickrInstances[`days-off-${id}`] = flatpickr(`#days-off-${id}`, {
+                    mode: "multiple", dateFormat: "Y-m-d", defaultDate: Object.keys(data.daysOff), onOpen: onOpenHandler,
+                    onChange: (selectedDates, dateStr, instance) => {
+                        const docId = instance.element.id.split('-')[2];
+                        const currentDaysOff = DOCTORS_DATA[docId].daysOff;
+                        const newDaysOff = {};
+                        selectedDates.forEach(date => {
+                            const dateString = date.toISOString().split('T')[0];
+                            newDaysOff[dateString] = currentDaysOff[dateString] || 'all';
+                        });
+                        DOCTORS_DATA[docId].daysOff = newDaysOff;
+                        renderDayOffDetails(docId);
+                    }
+                });
+            });
+        }
+        
+        function renderDayOffDetails(docId) {
+            const container = document.getElementById(`days-off-details-${docId}`);
+            container.innerHTML = '';
+            const daysOffData = DOCTORS_DATA[docId].daysOff;
+            const sortedDates = Object.keys(daysOffData).sort();
+            for (const date of sortedDates) {
+                const type = daysOffData[date];
+                const detailEl = document.createElement('div');
+                detailEl.className = 'day-off-detail';
+                detailEl.innerHTML = `
+                    <span>${date}</span>
+                    <div>
+                        <input type="radio" id="off-${docId}-${date}-all" name="off-${docId}-${date}" value="all" ${type === 'all' ? 'checked' : ''}><label for="off-${docId}-${date}-all">All</label>
+                        <input type="radio" id="off-${docId}-${date}-morn" name="off-${docId}-${date}" value="morning" ${type === 'morning' ? 'checked' : ''}><label for="off-${docId}-${date}-morn">M</label>
+                        <input type="radio" id="off-${docId}-${date}-aft" name="off-${docId}-${date}" value="afternoon" ${type === 'afternoon' ? 'checked' : ''}><label for="off-${docId}-${date}-aft">A</label>
+                    </div>
+                    <span class="remove-day-off" data-doc-id="${docId}" data-date="${date}">[x]</span>`;
+                container.appendChild(detailEl);
+            }
+            container.querySelectorAll('input[type="radio"]').forEach(radio => radio.addEventListener('change', (e) => {
+                const [_, docId, date] = e.target.id.split('-');
+                DOCTORS_DATA[docId].daysOff[date] = e.target.value;
+            }));
+            container.querySelectorAll('.remove-day-off').forEach(button => button.addEventListener('click', (e) => {
+                const { docId, date } = e.target.dataset;
+                delete DOCTORS_DATA[docId].daysOff[date];
+                renderDayOffDetails(docId);
+                flatpickrInstances[`days-off-${docId}`].setDate(Object.keys(DOCTORS_DATA[docId].daysOff));
+            }));
+        }
+        
+        function saveParameters() {
+            const params = {
+                month: dom.monthInput.value, year: dom.yearInput.value,
+                numUniqueSchedulesToFind: dom.numUniqueSchedulesToFindInput.value,
+                enableSpecialRules: dom.prioritizeDoubleShiftsCheckbox.checked,
+                doctors: {}
+            };
+            Object.keys(DOCTORS_DATA).forEach(id => {
+                params.doctors[id] = {
+                    min: document.getElementById(`min-shifts-${id}`).value, max: document.getElementById(`max-shifts-${id}`).value,
+                    daysOff: DOCTORS_DATA[id].daysOff, daysOn: document.getElementById(`days-on-${id}`).value,
+                };
+            });
+            const filename = dom.saveFileNameInput.value || 'schedule_params.json';
+            const blob = new Blob([JSON.stringify(params, null, 2)], { type: 'application/json' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob); a.download = filename; a.click();
+            URL.revokeObjectURL(a.href);
+            updateLog(`Parameters saved to ${filename}.`);
+        }
+
+        function loadParametersFromFile(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = e => {
+                try {
+                    const params = JSON.parse(e.target.result);
+                    dom.monthInput.value = params.month; dom.yearInput.value = params.year;
+                    dom.numUniqueSchedulesToFindInput.value = params.numUniqueSchedulesToFind || 25;
+                    dom.prioritizeDoubleShiftsCheckbox.checked = params.enableSpecialRules || false;
+                    Object.keys(DOCTORS_DATA).forEach(id => {
+                        if (params.doctors[id]) {
+                            DOCTORS_DATA[id].min = parseInt(params.doctors[id].min);
+                            DOCTORS_DATA[id].max = parseInt(params.doctors[id].max);
+                            DOCTORS_DATA[id].daysOff = params.doctors[id].daysOff || {};
+                            DOCTORS_DATA[id].daysOn = parseDates(params.doctors[id].daysOn);
+                        }
+                    });
+                    renderDoctorInputCards();
+                    updateLog(`Parameters loaded from ${file.name}. Click "Apply" to use them.`);
+                } catch (err) { updateLog('Error parsing file: ' + err.message); }
+            };
+            reader.readAsText(file);
+        }
+
+        function loadInitialParameters() {
+            currentMonth = parseInt(dom.monthInput.value) - 1;
+            currentYear = parseInt(dom.yearInput.value);
+            NUM_UNIQUE_SCHEDULES_TO_FIND = parseInt(dom.numUniqueSchedulesToFindInput.value);
+            enableSpecialRules = dom.prioritizeDoubleShiftsCheckbox.checked;
+            Object.keys(DOCTORS_DATA).forEach(id => {
+                DOCTORS_DATA[id].min = parseInt(document.getElementById(`min-shifts-${id}`).value);
+                DOCTORS_DATA[id].max = parseInt(document.getElementById(`max-shifts-${id}`).value);
+                DOCTORS_DATA[id].daysOn = parseDates(document.getElementById(`days-on-${id}`).value);
+            });
+            identifyHolidays();
+            resetUIForNewGeneration();
+            updateLog('Parameters applied. Ready to generate schedules.');
+        }
+
+        function resetUIForNewGeneration() {
+            state = { schedule: {}, log: [] };
+            dom.logContent.innerHTML = '';
+            renderCalendar();
+            document.getElementById('output-section').classList.add('hidden');
+            document.getElementById('variant-selection-controls').classList.add('hidden');
+            dom.generateVariantsBtn.disabled = false;
+        }
+
+        function identifyHolidays() {
+            identifiedHolidays = [];
+            const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+            const doctorIds = Object.keys(DOCTORS_DATA);
+            for (let day = 1; day <= daysInMonth; day++) {
+                const dateString = new Date(currentYear, currentMonth, day).toISOString().split('T')[0];
+                if (doctorIds.every(id => DOCTORS_DATA[id].daysOff[dateString] === 'all')) {
+                    identifiedHolidays.push(dateString);
+                }
+            }
+            if (identifiedHolidays.length > 0) updateLog(`Identified holidays: ${identifiedHolidays.join(', ')}`);
+        }
+
+        function updateLog(message) {
+            const entry = document.createElement('p');
+            entry.className = 'log-entry';
+            entry.textContent = `> ${message}`;
+            dom.logContent.prepend(entry);
+            if (dom.logContent.children.length > 20) dom.logContent.removeChild(dom.logContent.lastChild);
+        }
+
+        function renderCalendar() {
+            const calendarView = document.getElementById('calendar-view');
+            const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+            const firstDayOfMonth = new Date(currentYear, currentMonth, 1).getDay();
+            let html = `<table class="w-full border-collapse"><thead><tr class="bg-slate-100">`;
+            ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].forEach(day => html += `<th class="p-2 border text-sm">${day}</th>`);
+            html += `</tr></thead><tbody><tr>`;
+            for (let i = 0; i < firstDayOfMonth; i++) html += `<td class="border p-1 h-28 bg-slate-50"></td>`;
+            for (let day = 1; day <= daysInMonth; day++) {
+                const dateString = new Date(currentYear, currentMonth, day).toISOString().split('T')[0];
+                const dayOfWeek = new Date(currentYear, currentMonth, day).getDay();
+                if (dayOfWeek === 0 && day !== 1) html += `</tr><tr>`;
+                const isHoliday = identifiedHolidays.includes(dateString);
+                let cellClass = dayOfWeek === 0 ? 'bg-slate-200' : 'bg-white';
+                if (isHoliday) cellClass = 'holiday-cell';
+                html += `<td class="border p-1 h-28 align-top ${cellClass}"><div class="font-bold text-sm">${day}</div>`;
+                if(isHoliday) html += `<div class="text-xs font-semibold text-cyan-700 mt-1">Holiday</div>`;
+                if (state.schedule[dateString]) {
+                    Object.entries(state.schedule[dateString]).forEach(([shiftType, doctorId]) => {
+                        const doctor = doctorId ? DOCTORS_DATA[doctorId] : null;
+                        html += `<div class="mt-1 p-1 rounded text-xs font-semibold ${doctor ? doctor.color : 'bg-gray-100'} ${doctor ? doctor.textColor : 'text-gray-500'}">${shiftType}: ${doctor ? doctor.name : '___'}</div>`;
+                    });
+                }
+                html += `</td>`;
+            }
+            const lastDay = new Date(currentYear, currentMonth + 1, 0).getDay();
+            for(let i = lastDay; i < 6; i++) html += `<td class="border p-1 h-28 bg-slate-50"></td>`;
+            html += `</tr></tbody></table>`;
+            calendarView.innerHTML = html;
+        }
+
+        function renderMiniCalendar(scheduleToDisplay) {
+            const container = dom.loadingMiniCalendar;
+            const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+            const firstDay = new Date(currentYear, currentMonth, 1).getDay();
+            let html = `<table class="w-full text-center border-collapse"><thead><tr class="bg-slate-100">`;
+            ['S', 'M', 'T', 'W', 'T', 'F', 'S'].forEach(d => html += `<th class="p-0.5 border text-xxs">${d}</th>`);
+            html += `</tr></thead><tbody><tr>`;
+            for (let i = 0; i < firstDay; i++) html += `<td class="border p-0.5 h-6 bg-slate-50"></td>`;
+            for (let day = 1; day <= daysInMonth; day++) {
+                const dateString = new Date(currentYear, currentMonth, day).toISOString().split('T')[0];
+                const dayOfWeek = new Date(currentYear, currentMonth, day).getDay();
+                if (dayOfWeek === 0 && day !== 1) html += `</tr><tr>`;
+                let cellClass = dayOfWeek === 0 ? 'bg-slate-200' : 'bg-white';
+                if (identifiedHolidays.includes(dateString)) cellClass = 'holiday-cell';
+                html += `<td class="border p-0.5 h-6 align-top text-xxs font-semibold ${cellClass}"><div class="text-xxs">${day}</div>`;
+                if (scheduleToDisplay[dateString]) {
+                    const docs = new Set(Object.values(scheduleToDisplay[dateString]).filter(Boolean).map(id => DOCTORS_DATA[id].name.charAt(4)));
+                    if (docs.size > 0) html += `<div class="mt-0.5 text-xxs font-normal">${Array.from(docs).join(',')}</div>`;
+                }
+                html += `</td>`;
+            }
+            const lastDay = new Date(currentYear, currentMonth, daysInMonth).getDay();
+            for (let i = 0; i < 6 - lastDay; i++) html += `<td class="border p-0.5 h-6 bg-slate-50"></td>`;
+            html += `</tr></tbody></table>`;
+            container.innerHTML = html;
+        }
+
+        function shuffleArray(arr) { for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; } }
+        function calculateStdDev(arr) { if (arr.length < 2) return 0; const mean = arr.reduce((a, b) => a + b) / arr.length; return Math.sqrt(arr.map(x => Math.pow(x - mean, 2)).reduce((a, b) => a + b) / arr.length); }
+        function convertScoreToPercentage(score) { if (score === Infinity) return 0; return Math.max(0, Math.min(100, 100 - (Math.max(0, score) / MAX_BADNESS_FOR_PERCENTAGE) * 100)); }
+
+        function getScheduleMetrics(schedule) {
+            let doctorShifts = {}, satShifts = {};
+            Object.keys(DOCTORS_DATA).forEach(id => { doctorShifts[id] = 0; satShifts[id] = 0; });
+            for (const date in schedule) {
+                for (const shiftType in schedule[date]) {
+                    const docId = schedule[date][shiftType];
+                    if (docId) { doctorShifts[docId]++; if (shiftType === 'Saturday') satShifts[docId]++; }
+                }
+            }
+            return { doctorShiftCounts: doctorShifts, saturdayShiftCounts: satShifts };
+        }
+        
+        function calculateScheduleBadness(schedule) {
+            const explanation = { penalties: [], bonuses: [] };
+            let badness = 0;
+            const { doctorShiftCounts, saturdayShiftCounts } = getScheduleMetrics(schedule);
+            
+            for (const docId in DOCTORS_DATA) {
+                if (doctorShiftCounts[docId] < DOCTORS_DATA[docId].min || doctorShiftCounts[docId] > DOCTORS_DATA[docId].max) return { score: Infinity };
+                for (const date in DOCTORS_DATA[docId].daysOff) {
+                    const offType = DOCTORS_DATA[docId].daysOff[date];
+                    if (schedule[date] && ((offType === 'all' && (schedule[date].Morning === docId || schedule[date].Afternoon === docId)) || (offType === 'morning' && schedule[date].Morning === docId) || (offType === 'afternoon' && schedule[date].Afternoon === docId))) return { score: Infinity };
+                }
+            }
+            
+            let unassignedCount = 0;
+            Object.values(schedule).forEach(day => Object.values(day).forEach(doc => { if (doc === null) unassignedCount++; }));
+            if (unassignedCount > 0) { badness += unassignedCount * 500; explanation.penalties.push(`Had ${unassignedCount} unassigned shift(s)`); }
+
+            let consecutiveCount = 0;
+            for(const docId in DOCTORS_DATA) {
+                for(let d = 1; d < new Date(currentYear, currentMonth + 1, 0).getDate(); d++) {
+                    const today = new Date(currentYear, currentMonth, d).toISOString().split('T')[0];
+                    const tomorrow = new Date(currentYear, currentMonth, d + 1).toISOString().split('T')[0];
+                    if(schedule[today] && Object.values(schedule[today]).includes(docId) && schedule[tomorrow] && Object.values(schedule[tomorrow]).includes(docId)) consecutiveCount++;
+                }
+            }
+            if(consecutiveCount > 0) { badness += consecutiveCount * 400; explanation.penalties.push(`Contained ${consecutiveCount} instance(s) of consecutive work days`); }
+
+            let saturdayOverloadCount = 0;
+            for (const docId in DOCTORS_DATA) {
+                const count = saturdayShiftCounts[docId];
+                if (count > 1) {
+                    const overloadInstances = count - 1;
+                    badness += overloadInstances * 750;
+                    saturdayOverloadCount += overloadInstances;
+                }
+            }
+             if (saturdayOverloadCount > 0) explanation.penalties.push(`Contained ${saturdayOverloadCount} instance(s) of Saturday overload`);
+            
+            // CORRECTED: Replaced raw shift count standard deviation with normalized version.
+            const normalizedShiftCounts = Object.entries(doctorShiftCounts).map(([docId, count]) => {
+                const { min, max } = DOCTORS_DATA[docId];
+                const range = max - min;
+                return range > 0 ? (count - min) / range : 0;
+            });
+            badness += calculateStdDev(normalizedShiftCounts) * 500; // Penalty based on normalized range
+            
+            explanation.penalties.push("Included standard penalties for Saturday and normalized workload distribution");
+
+            if (enableSpecialRules) {
+                let doubleShiftPenaltyCount = 0, doubleShiftBonusCount = 0, midMonthBonusCount = 0;
+                const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+                Object.entries(schedule).forEach(([date, dayShifts]) => {
+                    const morningDoc = dayShifts.Morning;
+                    if (morningDoc && morningDoc === dayShifts.Afternoon) {
+                        const doctorData = DOCTORS_DATA[morningDoc];
+                        if (doctorData.prefersDoubleShifts) doubleShiftBonusCount++; else if (doctorData.avoidsDoubleShifts) doubleShiftPenaltyCount++;
+                    }
+                    const dayOfMonth = new Date(date).getDate();
+                    if (dayOfMonth >= 10 && dayOfMonth <= 20) {
+                        Object.values(dayShifts).forEach(docId => { 
+                            if (docId && DOCTORS_DATA[docId].hasMidMonthPreference) {
+                                const doctorData = DOCTORS_DATA[docId];
+                                const targetAvg = (doctorData.min + doctorData.max) / 2;
+                                const proportionalTarget = (dayOfMonth / daysInMonth) * targetAvg;
+                                if (doctorShiftCounts[docId] < proportionalTarget) {
+                                    midMonthBonusCount++;
+                                }
+                            }
+                        });
+                    }
+                });
+                if (doubleShiftPenaltyCount > 0) { badness += doubleShiftPenaltyCount * 350; explanation.penalties.push(`Contained ${doubleShiftPenaltyCount} discouraged double shift(s)`); }
+                if (doubleShiftBonusCount > 0) { badness -= doubleShiftBonusCount * 2; explanation.bonuses.push(`Awarded for ${doubleShiftBonusCount} preferred double shift(s)`); }
+                if (midMonthBonusCount > 0) { badness -= midMonthBonusCount * 20; explanation.bonuses.push(`Awarded for ${midMonthBonusCount} shift(s) meeting mid-month preference`); }
+            }
+            
+            return { score: badness + Math.random(), explanation, schedule };
+        }
+        
+        function createFinalChart() {
+            const ctx = document.getElementById('final-chart').getContext('2d');
+            const { doctorShiftCounts } = getScheduleMetrics(state.schedule);
+            if (window.myChart) window.myChart.destroy();
+            window.myChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: Object.values(DOCTORS_DATA).map(d => d.name),
+                    datasets: [
+                        { label: 'Assigned', data: Object.values(doctorShiftCounts), backgroundColor: 'rgba(14, 165, 233, 0.6)' },
+                        { label: 'Min', data: Object.values(DOCTORS_DATA).map(d => d.min), type: 'line', fill: false, borderColor: 'rgba(239, 68, 68, 0.7)', borderWidth: 2, borderDash: [5, 5] },
+                        { label: 'Max', data: Object.values(DOCTORS_DATA).map(d => d.max), type: 'line', fill: false, borderColor: 'rgba(34, 197, 94, 0.7)', borderWidth: 2, borderDash: [5, 5] }
+                    ]
+                },
+                options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true }}, plugins: { title: { display: true, text: `Final Shift Distribution`, font: { size: 18 }}}}
+            });
+        }
+
+        function isDoctorAvailableForShift(docId, shift) {
+            const offType = DOCTORS_DATA[docId].daysOff[shift.date];
+            return !(offType === 'all' || (offType && offType.toLowerCase() === shift.type.toLowerCase()));
+        }
+
+        async function generateScheduleIterative() {
+            let currentSchedule = {};
+            const allShifts = [];
+            const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+            for (let day = 1; day <= daysInMonth; day++) {
+                const date = new Date(currentYear, currentMonth, day);
+                const dateString = date.toISOString().split('T')[0];
+                if (date.getDay() === 0 || identifiedHolidays.includes(dateString)) continue;
+                currentSchedule[dateString] = {};
+                const shifts = date.getDay() < 6 ? ['Morning', 'Afternoon'] : ['Saturday'];
+                shifts.forEach(type => {
+                    currentSchedule[dateString][type] = null;
+                    allShifts.push({ date: dateString, type });
+                });
+            }
+            
+            shuffleArray(allShifts);
+            for (const shift of allShifts) {
+                const available = Object.keys(DOCTORS_DATA).filter(id => isDoctorAvailableForShift(id, shift) && getScheduleMetrics(currentSchedule).doctorShiftCounts[id] < DOCTORS_DATA[id].max);
+                if (available.length > 0) currentSchedule[shift.date][shift.type] = available[Math.floor(Math.random() * available.length)];
+            }
+            
+            let bestSchedule = JSON.parse(JSON.stringify(currentSchedule));
+            let { score: bestBadness } = calculateScheduleBadness(bestSchedule);
+
+            for (let i = 0; i < INTERNAL_ITERATIONS_PER_SCHEDULE_GEN; i++) {
+                if (allShifts.length === 0) break;
+                const shift = allShifts[Math.floor(Math.random() * allShifts.length)];
+                const originalDoc = currentSchedule[shift.date][shift.type];
+                const candidates = Object.keys(DOCTORS_DATA).filter(id => isDoctorAvailableForShift(id, shift));
+                candidates.push(null);
+                
+                let accepted = false;
+                for (const newDoc of candidates) {
+                    currentSchedule[shift.date][shift.type] = newDoc;
+                    if (newDoc && getScheduleMetrics(currentSchedule).doctorShiftCounts[newDoc] > DOCTORS_DATA[newDoc].max) continue;
+                    const { score: newBadness } = calculateScheduleBadness(currentSchedule);
+                    if (newBadness < bestBadness) {
+                        bestSchedule = JSON.parse(JSON.stringify(currentSchedule));
+                        bestBadness = newBadness;
+                        accepted = true;
+                        break;
+                    }
+                }
+                if (!accepted) currentSchedule[shift.date][shift.type] = originalDoc;
+            }
+            return calculateScheduleBadness(bestSchedule);
+        }
+        
+        async function generateAllVariants() {
+            isGenerationCancelled = false;
+            dom.logContent.innerHTML = '';
+            let topVariants = [];
+            dom.generateVariantsBtn.disabled = true;
+            dom.loadingOverlay.classList.remove('hidden');
+            updateLog(`Generating ${NUM_UNIQUE_SCHEDULES_TO_FIND} unique schedules...`);
+
+            let totalAttempts = 0;
+            let totalGenerationTime = 0;
+            const generationStartTime = performance.now();
+
+            while (topVariants.length < NUM_UNIQUE_SCHEDULES_TO_FIND && totalAttempts < MAX_OVERALL_ATTEMPTS_FOR_UNIQUE_VARIANTS && !isGenerationCancelled) {
+                totalAttempts++;
+                const startTime = performance.now();
+                const result = await generateScheduleIterative();
+                totalGenerationTime += performance.now() - startTime;
+
+                if (result.score === Infinity) continue;
+                
+                const hash = JSON.stringify(result.schedule);
+                if (!topVariants.some(v => v.hash === hash)) {
+                    topVariants.push({ ...result, hash });
+                    topVariants.sort((a, b) => a.score - b.score);
+                    if (topVariants.length > DISPLAY_BEST_VARIANTS_LIMIT) topVariants.pop();
+                    updateLog(`Found unique schedule (Score: ${convertScoreToPercentage(result.score).toFixed(0)}%). Total: ${topVariants.length}`);
+                }
+                
+                dom.loadingProgress.textContent = `Attempt ${totalAttempts}/${MAX_OVERALL_ATTEMPTS_FOR_UNIQUE_VARIANTS}...`;
+                dom.currentGeneratedScoreSummary.textContent = `Current Candidate Score: ${convertScoreToPercentage(result.score).toFixed(0)}%`;
+                const { doctorShiftCounts } = getScheduleMetrics(result.schedule);
+                dom.currentShiftsSummary.textContent = `Shifts: ` + Object.entries(doctorShiftCounts).map(([id, c]) => `${DOCTORS_DATA[id].name.charAt(4)}:${c}`).join(' ');
+                renderMiniCalendar(result.schedule);
+                dom.uniqueVariantsSummary.textContent = `Unique Variants Found: ${topVariants.length} / ${NUM_UNIQUE_SCHEDULES_TO_FIND}`;
+                if (topVariants.length > 0) {
+                    const avgScore = topVariants.reduce((sum, v) => sum + convertScoreToPercentage(v.score), 0) / topVariants.length;
+                    dom.avgScoreSummary.textContent = `Average Score: ${avgScore.toFixed(0)}%`;
+                    dom.highestScoreSummary.textContent = `Highest Score: ${convertScoreToPercentage(topVariants[0].score).toFixed(0)}%`;
+                }
+                const avgTime = totalGenerationTime / totalAttempts;
+                dom.avgTimeSummary.textContent = `Average Generation Time: ${avgTime.toFixed(1)} ms`;
+                const elapsedSeconds = (performance.now() - generationStartTime) / 1000;
+                dom.elapsedTimeSummary.textContent = `Time Elapsed: ${elapsedSeconds.toFixed(1)}s`;
+
+                await new Promise(r => setTimeout(r, 0));
+            }
+
+            dom.loadingOverlay.classList.add('hidden');
+            dom.generateVariantsBtn.disabled = false;
+            updateLog(isGenerationCancelled ? `Stopped. Found ${topVariants.length} unique schedules.` : `Finished. Found ${topVariants.length} unique schedules.`);
+
+            const controls = document.getElementById('variant-selection-controls');
+            const radioContainer = controls.querySelector('.flex.flex-wrap.gap-4');
+            radioContainer.innerHTML = '';
+            ALL_GENERATED_VARIANTS = {};
+
+            if (topVariants.length > 0) {
+                topVariants.forEach((data, index) => {
+                    const key = `variant${index + 1}`;
+                    radioContainer.innerHTML += `<label class="inline-flex items-center"><input type="radio" name="scheduleVariant" value="${key}" ${index === 0 ? 'checked' : ''} class="form-radio text-sky-600"> <span class="ml-2">${key.replace('v', 'V ')} (Score: ${convertScoreToPercentage(data.score).toFixed(0)}%)</span></label>`;
+                    ALL_GENERATED_VARIANTS[key] = data;
+                });
+                radioContainer.addEventListener('change', e => displayVariant(e.target.value));
+                displayVariant('variant1');
+                document.getElementById('output-section').classList.remove('hidden');
+                controls.classList.remove('hidden');
+            } else {
+                updateLog("No valid schedules could be generated in the given time.");
+            }
+        }
+        
+        function generatePrintableHTML(variantData) {
+            const { schedule, score, explanation } = variantData;
+            const { doctorShiftCounts } = getScheduleMetrics(schedule);
+            const monthName = new Date(currentYear, currentMonth).toLocaleString('en-US', { month: 'long' });
+
+            let explanationHTML = `<div class="breakdown-section"><h3>Score Breakdown</h3>`;
+            if (explanation.penalties.length > 1 || (explanation.penalties.length > 0 && explanation.bonuses.length > 0)) {
+                explanationHTML += `<h4>Penalties Applied:</h4><ul>`;
+                explanation.penalties.forEach(p => { explanationHTML += `<li>${p}</li>`; });
+                explanationHTML += `</ul>`;
+            }
+            if (explanation.bonuses.length > 0) {
+                explanationHTML += `<h4>Bonuses Awarded:</h4><ul>`;
+                explanation.bonuses.forEach(b => { explanationHTML += `<li>${b}</li>`; });
+                explanationHTML += `</ul>`;
+            }
+            if ((explanation.penalties.length <= 1 && explanation.bonuses.length === 0) || (!explanation.penalties && !explanation.bonuses)) {
+                explanationHTML += `<p>This schedule meets all special rules and preferences.</p>`;
+            }
+            explanationHTML += `</div>`;
+
+            let html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Printable Schedule - ${monthName} ${currentYear}</title>
+                <style>
+                    body{font-family:system-ui,sans-serif;margin:20px;color:#333}
+                    .print-header{text-align:center;margin-bottom:20px;border-bottom:2px solid #ccc;padding-bottom:10px}
+                    .instructions{text-align:center;padding:10px;background-color:#f0f8ff;border:1px solid #add8e6;border-radius:5px;margin-top:20px}
+                    .summary-section{margin-bottom:20px;display:flex;justify-content:space-between;gap:20px;align-items:flex-start;}
+                    .summary-table{border-collapse:collapse;width:35%} .summary-table th,.summary-table td{border:1px solid #ddd;padding:8px;text-align:left} .summary-table th{background-color:#f9f9f9}
+                    .details-section{width:60%} .breakdown-section{background-color:#f9f9f9;border:1px solid #ddd;padding:10px;border-radius:5px;margin-top:10px}
+                    .breakdown-section h3{margin-top:0;font-size:16px;border-bottom:1px solid #ccc;padding-bottom:5px}
+                    .breakdown-section h4{margin-top:10px;margin-bottom:5px;font-size:14px} .breakdown-section ul{margin:0;padding-left:20px;font-size:13px}
+                    .calendar-grid{width:100%;border-collapse:collapse} .calendar-grid th,.calendar-grid td{border:1px solid #ccc;padding:5px;vertical-align:top;height:100px} .calendar-grid th{background-color:#f2f2f2;height:auto}
+                    .day-number{font-weight:bold;font-size:14px} .shift{font-size:12px;font-weight:500;margin-top:5px;padding:4px;border-radius:4px;border:1px solid rgba(0,0,0,0.1)} .sunday-cell{background-color:#f5f5f5}
+                    .holiday-cell { background-color: #cffafe !important; }
+                    @media print{.instructions{display:none}body{margin:0}}
+                </style></head><body>
+                <div class="print-header"><h1>Doctor Schedule</h1><p>${monthName} ${currentYear}</p></div>
+                <div class="summary-section">
+                    <div class="details-section"><h2>Variant Details</h2><p><strong>Variant:</strong> ${currentSelectedVariant.replace('variant', 'Variant ')}</p><p><strong>Score:</strong> ${convertScoreToPercentage(score).toFixed(0)}%</p>${explanationHTML}</div>
+                    <table class="summary-table"><thead><tr><th colspan="2">Shift Summary</th></tr><tr><th>Doctor</th><th>Shifts</th></tr></thead><tbody>`;
+            Object.entries(doctorShiftCounts).forEach(([docId, count]) => { html += `<tr><td>${DOCTORS_DATA[docId].name}</td><td>${count}</td></tr>`; });
+            html += `</tbody></table></div><table class="calendar-grid"><thead><tr>`;
+            ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].forEach(day => html += `<th>${day}</th>`);
+            html += `</tr></thead><tbody><tr>`;
+            const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+            const firstDayOfMonth = new Date(currentYear, currentMonth, 1).getDay();
+            for (let i = 0; i < firstDayOfMonth; i++) html += `<td></td>`;
+            for (let day = 1; day <= daysInMonth; day++) {
+                const dateString = new Date(currentYear, currentMonth, day).toISOString().split('T')[0];
+                const dayOfWeek = new Date(currentYear, currentMonth, day).getDay();
+                if (dayOfWeek === 0 && day !== 1) html += `</tr><tr>`;
+                const cellClass = identifiedHolidays.includes(dateString) ? 'holiday-cell' : (dayOfWeek === 0 ? 'sunday-cell' : '');
+                html += `<td class="${cellClass}"><div class="day-number">${day}</div>`;
+                 if(identifiedHolidays.includes(dateString)) html += `<div class="text-xs font-semibold text-cyan-700 mt-1">Holiday</div>`;
+                if (schedule[dateString] && dayOfWeek !== 0) {
+                    Object.entries(schedule[dateString]).forEach(([shiftType, doctorId]) => {
+                        if (doctorId) {
+                            const doctor = DOCTORS_DATA[doctorId];
+                            html += `<div class="shift" style="background-color:${doctor.printBgColor}; color:${doctor.printTextColor};"><strong>${shiftType}:</strong> ${doctor.name}</div>`;
+                        }
+                    });
+                }
+                html += `</td>`;
+            }
+            const lastDayOfMonth = new Date(currentYear, currentMonth + 1, 0).getDay();
+            for (let i = 0; i < 6 - lastDayOfMonth; i++) html += `<td></td>`;
+            html += `</tr></tbody></table>
+                <div class="instructions"><p><strong>Tip:</strong> Use your browser's print function (Ctrl+P or Cmd+P) to save this schedule as a PDF or print it.</p></div>
+                </body></html>`;
+            return html;
+        }
+
+        function saveCurrentVariant() {
+            if (!currentSelectedVariant || !ALL_GENERATED_VARIANTS[currentSelectedVariant]) {
+                updateLog("No variant selected to save.");
+                return;
+            }
+            const variantData = ALL_GENERATED_VARIANTS[currentSelectedVariant];
+            const printableHTML = generatePrintableHTML(variantData);
+            const printWindow = window.open('', '_blank');
+            printWindow.document.write(printableHTML);
+            printWindow.document.close();
+            printWindow.focus();
+            updateLog(`Printable view for ${currentSelectedVariant} opened in a new tab.`);
+        }
+
+        window.displayVariant = function(variantId) {
+            currentSelectedVariant = variantId;
+            const data = ALL_GENERATED_VARIANTS[variantId];
+            state.schedule = data.schedule;
+            renderCalendar();
+            createFinalChart();
+            dom.logContent.innerHTML = '';
+            updateLog(`Displaying: ${variantId.replace('variant', 'Variant ')} (Score: ${convertScoreToPercentage(data.score).toFixed(0)}%)`);
+        }
+    </script>
+</body>
+</html>
