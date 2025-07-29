@@ -29,8 +29,8 @@
 
     <div class="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8">
         <header class="text-center mb-10">
-            <h1 class="text-4xl font-bold text-slate-900">Doctor Scheduling Algorithm</h1>
-            <p class="mt-2 text-lg text-slate-600">An interactive visualization of how the scheduling logic works.</p>
+            <h1 class="text-3xl sm:text-4xl font-bold text-slate-900">Doctor Scheduling Algorithm</h1>
+            <p class="mt-2 text-base sm:text-lg text-slate-600">An interactive visualization of how the scheduling logic works.</p>
         </header>
 
         <main class="space-y-12">
@@ -54,8 +54,9 @@
                             <input type="number" id="num-unique-schedules-to-find-input" value="25" min="1" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-sky-500 focus:ring-sky-500 sm:text-sm p-2">
                         </div>
                     </div>
-
-                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-6">
+                    
+                    <!-- UPDATED: Responsive container for doctor cards -->
+                    <div class="flex overflow-x-auto space-x-4 p-2 lg:grid lg:grid-cols-4 xl:grid-cols-5 lg:space-x-0 lg:gap-6">
                         <!-- Doctor Cards will be rendered here -->
                     </div>
 
@@ -64,16 +65,17 @@
                         <label for="prioritize-double-shifts" class="text-sm font-medium text-slate-700">Enable Special Rules (e.g., Double Shift Preference/Avoidance)</label>
                     </div>
 
-                    <div class="flex justify-center mt-8 space-x-4">
-                        <div class="flex items-center">
-                            <button id="save-params-btn" class="bg-green-600 text-white font-bold py-2 px-6 rounded-lg shadow-md hover:bg-green-700 transition-all transform hover:scale-105">Save Parameters</button>
-                            <input type="text" id="save-file-name-input" placeholder="schedule_params.json" value="schedule_params.json" class="ml-2 mt-1 block w-48 rounded-md border-gray-300 shadow-sm sm:text-sm p-1">
+                    <!-- UPDATED: Responsive button layout -->
+                    <div class="flex flex-col sm:flex-row justify-center items-center gap-4 mt-8">
+                        <div class="flex flex-col sm:flex-row items-center gap-2">
+                            <button id="save-params-btn" class="bg-green-600 text-white font-bold py-2 px-6 rounded-lg shadow-md hover:bg-green-700 transition-all transform hover:scale-105 w-full sm:w-auto">Save Parameters</button>
+                            <input type="text" id="save-file-name-input" placeholder="schedule_params.json" value="schedule_params.json" class="block w-full sm:w-48 rounded-md border-gray-300 shadow-sm sm:text-sm p-1">
                         </div>
-                        <div class="flex items-center">
-                            <button id="load-saved-params-btn" class="bg-purple-600 text-white font-bold py-2 px-6 rounded-lg shadow-md hover:bg-purple-700 transition-all transform hover:scale-105">Load Saved Parameters</button>
-                            <input type="file" id="load-file-input" accept=".json" class="ml-2 w-48 text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-violet-50 file:text-violet-700 hover:file:bg-violet-100">
+                        <div class="flex flex-col sm:flex-row items-center gap-2">
+                            <button id="load-saved-params-btn" class="bg-purple-600 text-white font-bold py-2 px-6 rounded-lg shadow-md hover:bg-purple-700 transition-all transform hover:scale-105 w-full sm:w-auto">Load Saved Parameters</button>
+                            <input type="file" id="load-file-input" accept=".json" class="block w-full sm:w-48 text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-violet-50 file:text-violet-700 hover:file:bg-violet-100">
                         </div>
-                        <button id="load-params-btn" class="bg-blue-600 text-white font-bold py-2 px-6 rounded-lg shadow-md hover:bg-blue-700 transition-all transform hover:scale-105">Apply Loaded Parameters</button>
+                        <button id="load-params-btn" class="bg-blue-600 text-white font-bold py-2 px-6 rounded-lg shadow-md hover:bg-blue-700 transition-all transform hover:scale-105 w-full sm:w-auto">Apply Loaded Parameters</button>
                     </div>
                 </div>
             </section>
@@ -165,7 +167,7 @@
         let currentSelectedVariant = 'variant1';
         let isGenerationCancelled = false;
         let identifiedHolidays = [];
-        let wakeLock = null; // For Screen Wake Lock API
+        let wakeLock = null;
 
         const dom = {
             generateVariantsBtn: document.getElementById('generate-variants-btn'), stopGenerationBtn: document.getElementById('stop-generation-btn'),
@@ -201,7 +203,7 @@
         function parseDates(dateString) { return (dateString || '').split(',').map(s => s.trim()).filter(Boolean); }
         
         function renderDoctorInputCards() {
-            const container = document.querySelector('#inputs-section .grid.xl\\:grid-cols-5');
+            const container = document.querySelector('#inputs-section .grid');
             container.innerHTML = '';
             Object.values(flatpickrInstances).forEach(instance => instance.destroy());
             flatpickrInstances = {};
@@ -212,7 +214,8 @@
 
             Object.entries(DOCTORS_DATA).forEach(([id, data]) => {
                 const card = document.createElement('div');
-                card.className = `p-4 border rounded-lg ${data.color}`;
+                // UPDATED: Responsive card width
+                card.className = `p-4 border rounded-lg ${data.color} flex-shrink-0 w-4/5 sm:w-2/3 md:w-1/2 lg:w-auto`;
                 card.innerHTML = `
                     <h4 class="font-bold ${data.textColor}">${data.name}</h4>
                     <div class="mt-2 text-sm space-y-2">
@@ -252,7 +255,7 @@
                 const detailEl = document.createElement('div');
                 detailEl.className = 'day-off-detail';
                 detailEl.innerHTML = `
-                    <span>${date}</span>
+                    <span>${date.substring(5)}</span>
                     <div>
                         <input type="radio" id="off-${docId}-${date}-all" name="off-${docId}-${date}" value="all" ${type === 'all' ? 'checked' : ''}><label for="off-${docId}-${date}-all">All</label>
                         <input type="radio" id="off-${docId}-${date}-morn" name="off-${docId}-${date}" value="morning" ${type === 'morning' ? 'checked' : ''}><label for="off-${docId}-${date}-morn">M</label>
@@ -371,7 +374,7 @@
             let html = `<table class="w-full border-collapse"><thead><tr class="bg-slate-100">`;
             ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].forEach(day => html += `<th class="p-2 border text-sm">${day}</th>`);
             html += `</tr></thead><tbody><tr>`;
-            for (let i = 0; i < firstDayOfMonth; i++) html += `<td class="border p-1 h-28 bg-slate-50"></td>`;
+            for (let i = 0; i < firstDayOfMonth; i++) html += `<td class="border p-1 h-24 sm:h-28 bg-slate-50"></td>`;
             for (let day = 1; day <= daysInMonth; day++) {
                 const dateString = new Date(currentYear, currentMonth, day).toISOString().split('T')[0];
                 const dayOfWeek = new Date(currentYear, currentMonth, day).getDay();
@@ -379,18 +382,18 @@
                 const isHoliday = identifiedHolidays.includes(dateString);
                 let cellClass = dayOfWeek === 0 ? 'bg-slate-200' : 'bg-white';
                 if (isHoliday) cellClass = 'holiday-cell';
-                html += `<td class="border p-1 h-28 align-top ${cellClass}"><div class="font-bold text-sm">${day}</div>`;
+                html += `<td class="border p-0.5 sm:p-1 h-24 sm:h-28 align-top ${cellClass}"><div class="font-bold text-sm">${day}</div>`;
                 if(isHoliday) html += `<div class="text-xs font-semibold text-cyan-700 mt-1">Holiday</div>`;
                 if (state.schedule[dateString]) {
                     Object.entries(state.schedule[dateString]).forEach(([shiftType, doctorId]) => {
                         const doctor = doctorId ? DOCTORS_DATA[doctorId] : null;
-                        html += `<div class="mt-1 p-1 rounded text-xs font-semibold ${doctor ? doctor.color : 'bg-gray-100'} ${doctor ? doctor.textColor : 'text-gray-500'}">${shiftType}: ${doctor ? doctor.name : '___'}</div>`;
+                        html += `<div class="mt-1 p-1 rounded text-xxs sm:text-xs font-semibold ${doctor ? doctor.color : 'bg-gray-100'} ${doctor ? doctor.textColor : 'text-gray-500'}">${shiftType}: ${doctor ? doctor.name : '___'}</div>`;
                     });
                 }
                 html += `</td>`;
             }
             const lastDay = new Date(currentYear, currentMonth + 1, 0).getDay();
-            for(let i = lastDay; i < 6; i++) html += `<td class="border p-1 h-28 bg-slate-50"></td>`;
+            for(let i = lastDay; i < 6; i++) html += `<td class="border p-1 h-24 sm:h-28 bg-slate-50"></td>`;
             html += `</tr></tbody></table>`;
             calendarView.innerHTML = html;
         }
@@ -669,9 +672,7 @@
                 try {
                     wakeLock = await navigator.wakeLock.request('screen');
                     updateLog('Screen wake lock activated.');
-                } catch (err) {
-                    console.error(`${err.name}, ${err.message}`);
-                }
+                } catch (err) { console.error(`${err.name}, ${err.message}`); }
             }
         }
 
