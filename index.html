@@ -111,8 +111,9 @@
                  <div class="p-4 bg-white rounded-lg shadow">
                     <p class="text-slate-600 mb-6">The algorithm has completed. The chart below shows the final shift distribution for each doctor, helping to quickly verify if the schedule is balanced and meets all core requirements.</p>
                     <div class="chart-container"><canvas id="final-chart"></canvas></div>
-                    <div class="flex justify-center mt-6">
+                    <div class="flex justify-center items-center gap-4 mt-6">
                         <button id="save-current-variant-btn" class="bg-indigo-600 text-white font-bold py-2 px-6 rounded-lg shadow-md hover:bg-indigo-700 transition-all transform hover:scale-105">Print/Save Current Variant</button>
+                        <button id="continue-generation-btn" class="bg-sky-600 text-white font-bold py-2 px-6 rounded-lg shadow-md hover:bg-sky-700 transition-all transform hover:scale-105 hidden">Continue Generation</button>
                     </div>
                  </div>
             </section>
@@ -122,7 +123,7 @@
     <!-- Loading Overlay -->
     <div id="loading-overlay" class="loading-overlay hidden">
         <div class="spinner"></div>
-        <p class="text-lg text-slate-700">Generating schedules...</p>
+        <p id="loading-title" class="text-lg text-slate-700">Generating schedules...</p>
         <p id="loading-progress" class="text-sm text-slate-500 font-semibold"></p>
         <div class="mt-2 text-center text-sm text-slate-600 bg-slate-100 p-2 rounded-md border border-slate-200">
             <p id="unique-variants-summary"></p>
@@ -144,6 +145,7 @@
         const MAX_OVERALL_ATTEMPTS_FOR_UNIQUE_VARIANTS = 10000;
         const DISPLAY_BEST_VARIANTS_LIMIT = 25;
         const MAX_BADNESS_FOR_PERCENTAGE = 4000;
+        const POLISHING_ITERATIONS = 500;
 
         document.addEventListener('DOMContentLoaded', () => {
             updateLog("Application initialized.");
@@ -166,6 +168,9 @@
         let isGenerationCancelled = false;
         let identifiedHolidays = [];
         let wakeLock = null;
+        let topVariants = [];
+        let totalAttempts = 0;
+        let totalGenerationTime = 0;
 
         const dom = {
             generateVariantsBtn: document.getElementById('generate-variants-btn'), stopGenerationBtn: document.getElementById('stop-generation-btn'),
@@ -176,11 +181,13 @@
             numUniqueSchedulesToFindInput: document.getElementById('num-unique-schedules-to-find-input'), 
             prioritizeDoubleShiftsCheckbox: document.getElementById('prioritize-double-shifts'), 
             loadingOverlay: document.getElementById('loading-overlay'), loadingProgress: document.getElementById('loading-progress'),
+            loadingTitle: document.getElementById('loading-title'), // New
             currentGeneratedScoreSummary: document.getElementById('current-generated-score-summary'), 
             currentShiftsSummary: document.getElementById('current-shifts-summary'), loadingMiniCalendar: document.getElementById('loading-mini-calendar'), 
             saveCurrentVariantBtn: document.getElementById('save-current-variant-btn'), uniqueVariantsSummary: document.getElementById('unique-variants-summary'),
             avgScoreSummary: document.getElementById('avg-score-summary'), highestScoreSummary: document.getElementById('highest-score-summary'),
-            avgTimeSummary: document.getElementById('avg-time-summary'), elapsedTimeSummary: document.getElementById('elapsed-time-summary')
+            avgTimeSummary: document.getElementById('avg-time-summary'), elapsedTimeSummary: document.getElementById('elapsed-time-summary'),
+            continueGenerationBtn: document.getElementById('continue-generation-btn')
         };
         
         let enableSpecialRules = false; 
@@ -193,7 +200,8 @@
             dom.saveParamsBtn.addEventListener('click', saveParameters);
             dom.loadSavedParamsBtn.addEventListener('click', () => dom.loadFileInput.click());
             dom.loadFileInput.addEventListener('change', loadParametersFromFile);
-            dom.generateVariantsBtn.addEventListener('click', generateAllVariants);
+            dom.generateVariantsBtn.addEventListener('click', () => generateAllVariants(false));
+            dom.continueGenerationBtn.addEventListener('click', () => generateAllVariants(true));
             dom.saveCurrentVariantBtn.addEventListener('click', saveCurrentVariant);
             dom.stopGenerationBtn.addEventListener('click', () => { isGenerationCancelled = true; updateLog("Generation process cancelled by user..."); });
         }
@@ -201,27 +209,15 @@
         function parseDates(dateString) { return (dateString || '').split(',').map(s => s.trim()).filter(Boolean); }
         
         function renderDoctorInputCards() {
-            const container = document.getElementById('doctor-cards-container'); // CORRECTED SELECTOR
+            const container = document.getElementById('doctor-cards-container');
             container.innerHTML = '';
             Object.values(flatpickrInstances).forEach(instance => instance.destroy());
             flatpickrInstances = {};
-
-            const onOpenHandler = (selectedDates, dateStr, instance) => {
-                instance.jumpToDate(new Date(parseInt(dom.yearInput.value), parseInt(dom.monthInput.value) - 1, 1));
-            };
-
+            const onOpenHandler = (selectedDates, dateStr, instance) => instance.jumpToDate(new Date(parseInt(dom.yearInput.value), parseInt(dom.monthInput.value) - 1, 1));
             Object.entries(DOCTORS_DATA).forEach(([id, data]) => {
                 const card = document.createElement('div');
                 card.className = `p-4 border rounded-lg ${data.color} flex-shrink-0 w-4/5 sm:w-2/3 md:w-1/2 lg:w-auto`;
-                card.innerHTML = `
-                    <h4 class="font-bold ${data.textColor}">${data.name}</h4>
-                    <div class="mt-2 text-sm space-y-2">
-                        <div><label for="min-shifts-${id}" class="block text-xs font-medium">Min</label><input type="number" id="min-shifts-${id}" value="${data.min}" class="mt-1 block w-full rounded-md shadow-sm sm:text-xs p-1"></div>
-                        <div><label for="max-shifts-${id}" class="block text-xs font-medium">Max</label><input type="number" id="max-shifts-${id}" value="${data.max}" class="mt-1 block w-full rounded-md shadow-sm sm:text-xs p-1"></div>
-                        <div><label for="days-off-${id}" class="block text-xs font-medium">Days Off</label><input type="text" id="days-off-${id}" placeholder="Select dates..." class="flatpickr-input mt-1 block w-full rounded-md shadow-sm sm:text-xs p-1"></div>
-                        <div id="days-off-details-${id}" class="mt-2 space-y-1"></div>
-                        <div><label for="days-on-${id}" class="block text-xs font-medium">Days On</label><input type="text" id="days-on-${id}" value="${data.daysOn.join(', ')}" class="flatpickr-input mt-1 block w-full rounded-md shadow-sm sm:text-xs p-1"></div>
-                    </div>`;
+                card.innerHTML = `<h4 class="font-bold ${data.textColor}">${data.name}</h4><div class="mt-2 text-sm space-y-2"><div><label for="min-shifts-${id}" class="block text-xs font-medium">Min</label><input type="number" id="min-shifts-${id}" value="${data.min}" class="mt-1 block w-full rounded-md shadow-sm sm:text-xs p-1"></div><div><label for="max-shifts-${id}" class="block text-xs font-medium">Max</label><input type="number" id="max-shifts-${id}" value="${data.max}" class="mt-1 block w-full rounded-md shadow-sm sm:text-xs p-1"></div><div><label for="days-off-${id}" class="block text-xs font-medium">Days Off</label><input type="text" id="days-off-${id}" placeholder="Select dates..." class="flatpickr-input mt-1 block w-full rounded-md shadow-sm sm:text-xs p-1"></div><div id="days-off-details-${id}" class="mt-2 space-y-1"></div><div><label for="days-on-${id}" class="block text-xs font-medium">Days On</label><input type="text" id="days-on-${id}" value="${data.daysOn.join(', ')}" class="flatpickr-input mt-1 block w-full rounded-md shadow-sm sm:text-xs p-1"></div></div>`;
                 container.appendChild(card);
                 renderDayOffDetails(id);
                 flatpickrInstances[`days-on-${id}`] = flatpickr(`#days-on-${id}`, { mode: "multiple", dateFormat: "Y-m-d", onOpen: onOpenHandler });
@@ -229,12 +225,8 @@
                     mode: "multiple", dateFormat: "Y-m-d", defaultDate: Object.keys(data.daysOff), onOpen: onOpenHandler,
                     onChange: (selectedDates, dateStr, instance) => {
                         const docId = instance.element.id.split('-')[2];
-                        const currentDaysOff = DOCTORS_DATA[docId].daysOff;
                         const newDaysOff = {};
-                        selectedDates.forEach(date => {
-                            const dateString = date.toISOString().split('T')[0];
-                            newDaysOff[dateString] = currentDaysOff[dateString] || 'all';
-                        });
+                        selectedDates.forEach(date => { newDaysOff[date.toISOString().split('T')[0]] = DOCTORS_DATA[docId].daysOff[date.toISOString().split('T')[0]] || 'all'; });
                         DOCTORS_DATA[docId].daysOff = newDaysOff;
                         renderDayOffDetails(docId);
                     }
@@ -245,27 +237,16 @@
         function renderDayOffDetails(docId) {
             const container = document.getElementById(`days-off-details-${docId}`);
             container.innerHTML = '';
-            const daysOffData = DOCTORS_DATA[docId].daysOff;
-            const sortedDates = Object.keys(daysOffData).sort();
+            const sortedDates = Object.keys(DOCTORS_DATA[docId].daysOff).sort();
             for (const date of sortedDates) {
-                const type = daysOffData[date];
+                const type = DOCTORS_DATA[docId].daysOff[date];
                 const detailEl = document.createElement('div');
                 detailEl.className = 'day-off-detail';
-                detailEl.innerHTML = `
-                    <span>${date.substring(5)}</span>
-                    <div>
-                        <input type="radio" id="off-${docId}-${date}-all" name="off-${docId}-${date}" value="all" ${type === 'all' ? 'checked' : ''}><label for="off-${docId}-${date}-all">All</label>
-                        <input type="radio" id="off-${docId}-${date}-morn" name="off-${docId}-${date}" value="morning" ${type === 'morning' ? 'checked' : ''}><label for="off-${docId}-${date}-morn">M</label>
-                        <input type="radio" id="off-${docId}-${date}-aft" name="off-${docId}-${date}" value="afternoon" ${type === 'afternoon' ? 'checked' : ''}><label for="off-${docId}-${date}-aft">A</label>
-                    </div>
-                    <span class="remove-day-off" data-doc-id="${docId}" data-date="${date}">[x]</span>`;
+                detailEl.innerHTML = `<span>${date.substring(5)}</span><div><input type="radio" id="off-${docId}-${date}-all" name="off-${docId}-${date}" value="all" ${type === 'all' ? 'checked' : ''}><label for="off-${docId}-${date}-all">All</label><input type="radio" id="off-${docId}-${date}-morn" name="off-${docId}-${date}" value="morning" ${type === 'morning' ? 'checked' : ''}><label for="off-${docId}-${date}-morn">M</label><input type="radio" id="off-${docId}-${date}-aft" name="off-${docId}-${date}" value="afternoon" ${type === 'afternoon' ? 'checked' : ''}><label for="off-${docId}-${date}-aft">A</label></div><span class="remove-day-off" data-doc-id="${docId}" data-date="${date}">[x]</span>`;
                 container.appendChild(detailEl);
             }
-            container.querySelectorAll('input[type="radio"]').forEach(radio => radio.addEventListener('change', (e) => {
-                const [_, docId, date] = e.target.id.split('-');
-                DOCTORS_DATA[docId].daysOff[date] = e.target.value;
-            }));
-            container.querySelectorAll('.remove-day-off').forEach(button => button.addEventListener('click', (e) => {
+            container.querySelectorAll('input[type="radio"]').forEach(radio => radio.addEventListener('change', e => { DOCTORS_DATA[e.target.id.split('-')[1]].daysOff[e.target.id.split('-')[2]] = e.target.value; }));
+            container.querySelectorAll('.remove-day-off').forEach(button => button.addEventListener('click', e => {
                 const { docId, date } = e.target.dataset;
                 delete DOCTORS_DATA[docId].daysOff[date];
                 renderDayOffDetails(docId);
@@ -274,18 +255,8 @@
         }
         
         function saveParameters() {
-            const params = {
-                month: dom.monthInput.value, year: dom.yearInput.value,
-                numUniqueSchedulesToFind: dom.numUniqueSchedulesToFindInput.value,
-                enableSpecialRules: dom.prioritizeDoubleShiftsCheckbox.checked,
-                doctors: {}
-            };
-            Object.keys(DOCTORS_DATA).forEach(id => {
-                params.doctors[id] = {
-                    min: document.getElementById(`min-shifts-${id}`).value, max: document.getElementById(`max-shifts-${id}`).value,
-                    daysOff: DOCTORS_DATA[id].daysOff, daysOn: document.getElementById(`days-on-${id}`).value,
-                };
-            });
+            const params = { month: dom.monthInput.value, year: dom.yearInput.value, numUniqueSchedulesToFind: dom.numUniqueSchedulesToFindInput.value, enableSpecialRules: dom.prioritizeDoubleShiftsCheckbox.checked, doctors: {} };
+            Object.keys(DOCTORS_DATA).forEach(id => { params.doctors[id] = { min: document.getElementById(`min-shifts-${id}`).value, max: document.getElementById(`max-shifts-${id}`).value, daysOff: DOCTORS_DATA[id].daysOff, daysOn: document.getElementById(`days-on-${id}`).value, }; });
             const filename = dom.saveFileNameInput.value || 'schedule_params.json';
             const blob = new Blob([JSON.stringify(params, null, 2)], { type: 'application/json' });
             const a = document.createElement('a');
@@ -483,7 +454,7 @@
             badness += calculateStdDev(normalizedShiftCounts) * 500;
             
             const totalAssignedShifts = Object.values(doctorShiftCounts).reduce((sum, count) => sum + count, 0);
-            badness -= totalAssignedShifts * 1; 
+            badness -= totalAssignedShifts * 2; // Increased bonus
             explanation.bonuses.push(`Rewarded for having ${totalAssignedShifts} total assigned shifts`);
             explanation.penalties.push("Included standard penalties for Saturday and normalized workload distribution");
 
@@ -596,27 +567,65 @@
             }
             return calculateScheduleBadness(bestSchedule);
         }
+
+        async function polishSchedule(schedule, allShifts) {
+            let bestSchedule = JSON.parse(JSON.stringify(schedule));
+            let { score: bestScore } = calculateScheduleBadness(bestSchedule);
+            for (let i = 0; i < POLISHING_ITERATIONS; i++) {
+                const shift1 = allShifts[Math.floor(Math.random() * allShifts.length)];
+                const shift2 = allShifts[Math.floor(Math.random() * allShifts.length)];
+                if (shift1.date === shift2.date) continue;
+                
+                const doc1 = bestSchedule[shift1.date][shift1.type];
+                const doc2 = bestSchedule[shift2.date][shift2.type];
+                
+                // Swap
+                bestSchedule[shift1.date][shift1.type] = doc2;
+                bestSchedule[shift2.date][shift2.type] = doc1;
+                
+                const { score: newScore } = calculateScheduleBadness(bestSchedule);
+                if (newScore < bestScore) {
+                    bestScore = newScore;
+                } else {
+                    bestSchedule[shift1.date][shift1.type] = doc1;
+                    bestSchedule[shift2.date][shift2.type] = doc2;
+                }
+            }
+            return calculateScheduleBadness(bestSchedule);
+        }
         
-        async function generateAllVariants() {
+        async function generateAllVariants(isContinuation = false) {
+            if (!isContinuation) {
+                topVariants = [];
+                totalAttempts = 0;
+                totalGenerationTime = 0;
+                dom.logContent.innerHTML = '';
+            }
             isGenerationCancelled = false;
             await requestWakeLock();
-            dom.logContent.innerHTML = '';
-            let topVariants = [];
             dom.generateVariantsBtn.disabled = true;
+            dom.continueGenerationBtn.classList.add('hidden');
             dom.loadingOverlay.classList.remove('hidden');
-            updateLog(`Generating ${NUM_UNIQUE_SCHEDULES_TO_FIND} unique schedules...`);
+            updateLog(`Phase 1: Generating new unique schedules...`);
 
-            let totalAttempts = 0;
-            let totalGenerationTime = 0;
             const generationStartTime = performance.now();
 
             while (topVariants.length < NUM_UNIQUE_SCHEDULES_TO_FIND && totalAttempts < MAX_OVERALL_ATTEMPTS_FOR_UNIQUE_VARIANTS && !isGenerationCancelled) {
                 totalAttempts++;
                 const startTime = performance.now();
-                const result = await generateScheduleIterative();
+                let result = await generateScheduleIterative();
                 totalGenerationTime += performance.now() - startTime;
 
                 if (result.score === Infinity) continue;
+                
+                // Dynamic Polishing
+                const avgScore = topVariants.length > 0 ? topVariants.reduce((sum, v) => sum + v.score, 0) / topVariants.length : -Infinity;
+                if (result.score < avgScore) {
+                    dom.loadingTitle.textContent = "Phase 2: Polishing candidate...";
+                    const allShifts = Object.entries(result.schedule).flatMap(([date, shifts]) => Object.keys(shifts).map(type => ({date, type})));
+                    result = await polishSchedule(result.schedule, allShifts);
+                    dom.loadingTitle.textContent = "Phase 1: Generating schedules...";
+                }
                 
                 const hash = JSON.stringify(result.schedule);
                 if (!topVariants.some(v => v.hash === hash)) {
@@ -633,14 +642,13 @@
                 renderMiniCalendar(result.schedule);
                 dom.uniqueVariantsSummary.textContent = `Unique Variants Found: ${topVariants.length} / ${NUM_UNIQUE_SCHEDULES_TO_FIND}`;
                 if (topVariants.length > 0) {
-                    const avgScore = topVariants.reduce((sum, v) => sum + convertScoreToPercentage(v.score), 0) / topVariants.length;
-                    dom.avgScoreSummary.textContent = `Average Score: ${avgScore.toFixed(0)}%`;
+                    const avgDisplayScore = topVariants.reduce((sum, v) => sum + convertScoreToPercentage(v.score), 0) / topVariants.length;
+                    dom.avgScoreSummary.textContent = `Average Score: ${avgDisplayScore.toFixed(0)}%`;
                     dom.highestScoreSummary.textContent = `Highest Score: ${convertScoreToPercentage(topVariants[0].score).toFixed(0)}%`;
                 }
                 const avgTime = totalGenerationTime / totalAttempts;
                 dom.avgTimeSummary.textContent = `Average Generation Time: ${avgTime.toFixed(1)} ms`;
                 dom.elapsedTimeSummary.textContent = `Time Elapsed: ${formatElapsedTime(performance.now() - generationStartTime)}`;
-
                 await new Promise(r => setTimeout(r, 0));
             }
 
@@ -663,6 +671,7 @@
                 radioContainer.addEventListener('change', e => displayVariant(e.target.value));
                 displayVariant('variant1');
                 document.getElementById('output-section').classList.remove('hidden');
+                dom.continueGenerationBtn.classList.remove('hidden');
                 controls.classList.remove('hidden');
             } else {
                 updateLog("No valid schedules could be generated in the given time.");
