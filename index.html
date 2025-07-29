@@ -55,8 +55,7 @@
                         </div>
                     </div>
                     
-                    <!-- UPDATED: Responsive container for doctor cards -->
-                    <div class="flex overflow-x-auto space-x-4 p-2 lg:grid lg:grid-cols-4 xl:grid-cols-5 lg:space-x-0 lg:gap-6">
+                    <div id="doctor-cards-container" class="flex overflow-x-auto space-x-4 p-2 lg:grid lg:grid-cols-4 xl:grid-cols-5 lg:space-x-0 lg:gap-6">
                         <!-- Doctor Cards will be rendered here -->
                     </div>
 
@@ -65,7 +64,6 @@
                         <label for="prioritize-double-shifts" class="text-sm font-medium text-slate-700">Enable Special Rules (e.g., Double Shift Preference/Avoidance)</label>
                     </div>
 
-                    <!-- UPDATED: Responsive button layout -->
                     <div class="flex flex-col sm:flex-row justify-center items-center gap-4 mt-8">
                         <div class="flex flex-col sm:flex-row items-center gap-2">
                             <button id="save-params-btn" class="bg-green-600 text-white font-bold py-2 px-6 rounded-lg shadow-md hover:bg-green-700 transition-all transform hover:scale-105 w-full sm:w-auto">Save Parameters</button>
@@ -155,9 +153,9 @@
         let DOCTORS_DATA = { 
             'A': { name: 'Dr. M', color: 'bg-fuchsia-200', textColor: 'text-fuchsia-900', printBgColor: '#f5d0fe', printTextColor: '#701a75', min: 11, max: 13, daysOff: {}, daysOn: [], prefersDoubleShifts: true, avoidsDoubleShifts: false, hasMidMonthPreference: false },
             'B': { name: 'Dr. J', color: 'bg-green-200', textColor: 'text-green-900', printBgColor: '#bbf7d0', printTextColor: '#14532d', min: 11, max: 13, daysOff: {}, daysOn: [], prefersDoubleShifts: true, avoidsDoubleShifts: false, hasMidMonthPreference: false },
-            'C': { name: 'Dr. B', color: 'bg-pink-200', textColor: 'text-pink-900', printBgColor: '#fbcfe8', printTextColor: '#831843', min: 11, max: 13, daysOff: {}, daysOn: [], prefersDoubleShifts: true, avoidsDoubleShifts: false, hasMidMonthPreference: false },
-            'D': { name: 'Dr. H', color: 'bg-orange-200', textColor: 'text-orange-900', printBgColor: '#fed7aa', printTextColor: '#7c2d12', min: 5, max: 6, daysOff: {}, daysOn: [], prefersDoubleShifts: false, avoidsDoubleShifts: true, hasMidMonthPreference: true },
-            'E': { name: 'Dr. L', color: 'bg-yellow-200', textColor: 'text-yellow-900', printBgColor: '#fef08a', printTextColor: '#713f12', min: 5, max: 6, daysOff: {}, daysOn: [], prefersDoubleShifts: false, avoidsDoubleShifts: true, hasMidMonthPreference: true }
+            'C': { name: 'Dr. B', color: 'bg-pink-200', textColor: 'text-pink-900', printBgColor: '#fbcfe8', printTextColor: '#831843', min: 12, max: 12, daysOff: {}, daysOn: [], prefersDoubleShifts: true, avoidsDoubleShifts: false, hasMidMonthPreference: false },
+            'D': { name: 'Dr. H', color: 'bg-orange-200', textColor: 'text-orange-900', printBgColor: '#fed7aa', printTextColor: '#7c2d12', min: 6, max: 6, daysOff: {}, daysOn: [], prefersDoubleShifts: false, avoidsDoubleShifts: true, hasMidMonthPreference: true },
+            'E': { name: 'Dr. L', color: 'bg-yellow-200', textColor: 'text-yellow-900', printBgColor: '#fef08a', printTextColor: '#713f12', min: 6, max: 6, daysOff: {}, daysOn: [], prefersDoubleShifts: false, avoidsDoubleShifts: true, hasMidMonthPreference: true }
         };
 
         let currentYear = 2025;
@@ -203,7 +201,7 @@
         function parseDates(dateString) { return (dateString || '').split(',').map(s => s.trim()).filter(Boolean); }
         
         function renderDoctorInputCards() {
-            const container = document.querySelector('#inputs-section .grid');
+            const container = document.getElementById('doctor-cards-container'); // CORRECTED SELECTOR
             container.innerHTML = '';
             Object.values(flatpickrInstances).forEach(instance => instance.destroy());
             flatpickrInstances = {};
@@ -214,7 +212,6 @@
 
             Object.entries(DOCTORS_DATA).forEach(([id, data]) => {
                 const card = document.createElement('div');
-                // UPDATED: Responsive card width
                 card.className = `p-4 border rounded-lg ${data.color} flex-shrink-0 w-4/5 sm:w-2/3 md:w-1/2 lg:w-auto`;
                 card.innerHTML = `
                     <h4 class="font-bold ${data.textColor}">${data.name}</h4>
@@ -485,6 +482,9 @@
             });
             badness += calculateStdDev(normalizedShiftCounts) * 500;
             
+            const totalAssignedShifts = Object.values(doctorShiftCounts).reduce((sum, count) => sum + count, 0);
+            badness -= totalAssignedShifts * 1; 
+            explanation.bonuses.push(`Rewarded for having ${totalAssignedShifts} total assigned shifts`);
             explanation.penalties.push("Included standard penalties for Saturday and normalized workload distribution");
 
             if (enableSpecialRules) {
@@ -561,6 +561,15 @@
                 if (available.length > 0) currentSchedule[shift.date][shift.type] = available[Math.floor(Math.random() * available.length)];
             }
             
+            const unassignedShifts = allShifts.filter(shift => currentSchedule[shift.date][shift.type] === null);
+            for (const shift of unassignedShifts) {
+                const currentCounts = getScheduleMetrics(currentSchedule).doctorShiftCounts;
+                const availableDoctors = Object.keys(DOCTORS_DATA)
+                    .filter(id => isDoctorAvailableForShift(id, shift) && currentCounts[id] < DOCTORS_DATA[id].max)
+                    .sort((a, b) => currentCounts[a] - currentCounts[b]);
+                if (availableDoctors.length > 0) currentSchedule[shift.date][shift.type] = availableDoctors[0];
+            }
+
             let bestSchedule = JSON.parse(JSON.stringify(currentSchedule));
             let { score: bestBadness } = calculateScheduleBadness(bestSchedule);
 
@@ -678,9 +687,7 @@
 
         function releaseWakeLock() {
             if (wakeLock !== null) {
-                wakeLock.release();
-                wakeLock = null;
-                updateLog('Screen wake lock released.');
+                wakeLock.release().then(() => { wakeLock = null; updateLog('Screen wake lock released.'); });
             }
         }
         
