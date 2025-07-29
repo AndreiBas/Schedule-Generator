@@ -165,6 +165,7 @@
         let currentSelectedVariant = 'variant1';
         let isGenerationCancelled = false;
         let identifiedHolidays = [];
+        let wakeLock = null; // For Screen Wake Lock API
 
         const dom = {
             generateVariantsBtn: document.getElementById('generate-variants-btn'), stopGenerationBtn: document.getElementById('stop-generation-btn'),
@@ -474,14 +475,12 @@
                 }
             }
              if (saturdayOverloadCount > 0) explanation.penalties.push(`Contained ${saturdayOverloadCount} instance(s) of Saturday overload`);
-            
-            // CORRECTED: Replaced raw shift count standard deviation with normalized version.
+
             const normalizedShiftCounts = Object.entries(doctorShiftCounts).map(([docId, count]) => {
                 const { min, max } = DOCTORS_DATA[docId];
-                const range = max - min;
-                return range > 0 ? (count - min) / range : 0;
+                return (max - min) > 0 ? (count - min) / (max - min) : 0;
             });
-            badness += calculateStdDev(normalizedShiftCounts) * 500; // Penalty based on normalized range
+            badness += calculateStdDev(normalizedShiftCounts) * 500;
             
             explanation.penalties.push("Included standard penalties for Saturday and normalized workload distribution");
 
@@ -501,9 +500,7 @@
                                 const doctorData = DOCTORS_DATA[docId];
                                 const targetAvg = (doctorData.min + doctorData.max) / 2;
                                 const proportionalTarget = (dayOfMonth / daysInMonth) * targetAvg;
-                                if (doctorShiftCounts[docId] < proportionalTarget) {
-                                    midMonthBonusCount++;
-                                }
+                                if (doctorShiftCounts[docId] < proportionalTarget) midMonthBonusCount++;
                             }
                         });
                     }
@@ -590,6 +587,7 @@
         
         async function generateAllVariants() {
             isGenerationCancelled = false;
+            await requestWakeLock();
             dom.logContent.innerHTML = '';
             let topVariants = [];
             dom.generateVariantsBtn.disabled = true;
@@ -629,12 +627,12 @@
                 }
                 const avgTime = totalGenerationTime / totalAttempts;
                 dom.avgTimeSummary.textContent = `Average Generation Time: ${avgTime.toFixed(1)} ms`;
-                const elapsedSeconds = (performance.now() - generationStartTime) / 1000;
-                dom.elapsedTimeSummary.textContent = `Time Elapsed: ${elapsedSeconds.toFixed(1)}s`;
+                dom.elapsedTimeSummary.textContent = `Time Elapsed: ${formatElapsedTime(performance.now() - generationStartTime)}`;
 
                 await new Promise(r => setTimeout(r, 0));
             }
 
+            releaseWakeLock();
             dom.loadingOverlay.classList.add('hidden');
             dom.generateVariantsBtn.disabled = false;
             updateLog(isGenerationCancelled ? `Stopped. Found ${topVariants.length} unique schedules.` : `Finished. Found ${topVariants.length} unique schedules.`);
@@ -656,6 +654,32 @@
                 controls.classList.remove('hidden');
             } else {
                 updateLog("No valid schedules could be generated in the given time.");
+            }
+        }
+        
+        function formatElapsedTime(ms) {
+            const totalSeconds = Math.floor(ms / 1000);
+            const minutes = Math.floor(totalSeconds / 60);
+            const seconds = totalSeconds % 60;
+            return `${minutes}m ${seconds}s`;
+        }
+        
+        async function requestWakeLock() {
+            if ('wakeLock' in navigator) {
+                try {
+                    wakeLock = await navigator.wakeLock.request('screen');
+                    updateLog('Screen wake lock activated.');
+                } catch (err) {
+                    console.error(`${err.name}, ${err.message}`);
+                }
+            }
+        }
+
+        function releaseWakeLock() {
+            if (wakeLock !== null) {
+                wakeLock.release();
+                wakeLock = null;
+                updateLog('Screen wake lock released.');
             }
         }
         
