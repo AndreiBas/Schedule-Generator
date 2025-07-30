@@ -19,9 +19,9 @@
         .spinner { border: 4px solid rgba(0, 0, 0, 0.1); border-left-color: #0ea5e9; border-radius: 50%; width: 50px; height: 50px; animation: spin 1s linear infinite; }
         @keyframes spin { to { transform: rotate(360deg); } }
         .text-xxs { font-size: 0.6rem; line-height: 0.75rem; }
-        .day-off-detail { font-size: 0.75rem; display: flex; align-items: center; justify-content: space-between; gap: 4px; padding: 2px 4px; background-color: rgba(0,0,0,0.05); border-radius: 4px; margin-top: 4px; }
-        .day-off-detail label { margin-left: 2px; margin-right: 6px; }
-        .remove-day-off { cursor: pointer; color: #ef4444; font-weight: bold; padding: 0 4px; }
+        .day-request-detail { font-size: 0.75rem; display: flex; align-items: center; justify-content: space-between; gap: 4px; padding: 2px 4px; background-color: rgba(0,0,0,0.05); border-radius: 4px; margin-top: 4px; }
+        .day-request-detail label { margin-left: 2px; margin-right: 6px; }
+        .remove-day-request { cursor: pointer; color: #ef4444; font-weight: bold; padding: 0 4px; }
         .holiday-cell { background-color: #cffafe !important; /* cyan-100 */ }
     </style>
 </head>
@@ -38,7 +38,7 @@
             <section id="inputs-section">
                 <h2 class="text-2xl font-semibold mb-4 border-b pb-2">1. Initial Parameters</h2>
                 <div class="p-4 bg-white rounded-lg shadow">
-                    <p class="text-slate-600 mb-6">Define the month and year for the schedule, and customize each doctor's parameters. For "Days Off", select dates in the calendar, then specify if the time off is for the full day, morning, or afternoon.</p>
+                    <p class="text-slate-600 mb-6">Define the month and year for the schedule, and customize each doctor's parameters. For "Days Off/On", select dates in the calendar, then specify if the request is for the full day, morning, or afternoon.</p>
                     
                     <div class="mb-6 grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
@@ -141,23 +141,26 @@
     <script type="module">
         import "https://cdn.jsdelivr.net/npm/flatpickr";
 
+        // --- CORE ALGORITHM CONSTANTS ---
         const INTERNAL_ITERATIONS_PER_SCHEDULE_GEN = 1000;
         const MAX_OVERALL_ATTEMPTS_FOR_UNIQUE_VARIANTS = 10000;
         const DISPLAY_BEST_VARIANTS_LIMIT = 25;
         const MAX_BADNESS_FOR_PERCENTAGE = 4000;
         const POLISHING_ITERATIONS = 500;
+        const DEEP_OPTIMIZATION_ITERATIONS = 2000;
 
+        // --- INITIAL STATE & DATA ---
         document.addEventListener('DOMContentLoaded', () => {
             updateLog("Application initialized.");
             init();
         });
 
         let DOCTORS_DATA = { 
-            'A': { name: 'Dr. M', color: 'bg-fuchsia-200', textColor: 'text-fuchsia-900', printBgColor: '#f5d0fe', printTextColor: '#701a75', min: 11, max: 13, daysOff: {}, daysOn: [], prefersDoubleShifts: true, avoidsDoubleShifts: false, hasMidMonthPreference: false },
-            'B': { name: 'Dr. J', color: 'bg-green-200', textColor: 'text-green-900', printBgColor: '#bbf7d0', printTextColor: '#14532d', min: 11, max: 13, daysOff: {}, daysOn: [], prefersDoubleShifts: true, avoidsDoubleShifts: false, hasMidMonthPreference: false },
-            'C': { name: 'Dr. B', color: 'bg-pink-200', textColor: 'text-pink-900', printBgColor: '#fbcfe8', printTextColor: '#831843', min: 12, max: 12, daysOff: {}, daysOn: [], prefersDoubleShifts: true, avoidsDoubleShifts: false, hasMidMonthPreference: false },
-            'D': { name: 'Dr. H', color: 'bg-orange-200', textColor: 'text-orange-900', printBgColor: '#fed7aa', printTextColor: '#7c2d12', min: 6, max: 6, daysOff: {}, daysOn: [], prefersDoubleShifts: false, avoidsDoubleShifts: true, hasMidMonthPreference: true },
-            'E': { name: 'Dr. L', color: 'bg-yellow-200', textColor: 'text-yellow-900', printBgColor: '#fef08a', printTextColor: '#713f12', min: 6, max: 6, daysOff: {}, daysOn: [], prefersDoubleShifts: false, avoidsDoubleShifts: true, hasMidMonthPreference: true }
+            'A': { name: 'Dr. M', color: 'bg-fuchsia-200', textColor: 'text-fuchsia-900', printBgColor: '#f5d0fe', printTextColor: '#701a75', min: 11, max: 13, daysOff: {}, daysOn: {}, prefersDoubleShifts: true, avoidsDoubleShifts: false, hasMidMonthPreference: false },
+            'B': { name: 'Dr. J', color: 'bg-green-200', textColor: 'text-green-900', printBgColor: '#bbf7d0', printTextColor: '#14532d', min: 11, max: 13, daysOff: {}, daysOn: {}, prefersDoubleShifts: true, avoidsDoubleShifts: false, hasMidMonthPreference: false },
+            'C': { name: 'Dr. B', color: 'bg-pink-200', textColor: 'text-pink-900', printBgColor: '#fbcfe8', printTextColor: '#831843', min: 12, max: 12, daysOff: {}, daysOn: {}, prefersDoubleShifts: true, avoidsDoubleShifts: false, hasMidMonthPreference: false },
+            'D': { name: 'Dr. H', color: 'bg-orange-200', textColor: 'text-orange-900', printBgColor: '#fed7aa', printTextColor: '#7c2d12', min: 6, max: 6, daysOff: {}, daysOn: {}, prefersDoubleShifts: false, avoidsDoubleShifts: true, hasMidMonthPreference: true },
+            'E': { name: 'Dr. L', color: 'bg-yellow-200', textColor: 'text-yellow-900', printBgColor: '#fef08a', printTextColor: '#713f12', min: 6, max: 6, daysOff: {}, daysOn: {}, prefersDoubleShifts: false, avoidsDoubleShifts: true, hasMidMonthPreference: true }
         };
 
         let currentYear = 2025;
@@ -181,7 +184,7 @@
             numUniqueSchedulesToFindInput: document.getElementById('num-unique-schedules-to-find-input'), 
             prioritizeDoubleShiftsCheckbox: document.getElementById('prioritize-double-shifts'), 
             loadingOverlay: document.getElementById('loading-overlay'), loadingProgress: document.getElementById('loading-progress'),
-            loadingTitle: document.getElementById('loading-title'), // New
+            loadingTitle: document.getElementById('loading-title'),
             currentGeneratedScoreSummary: document.getElementById('current-generated-score-summary'), 
             currentShiftsSummary: document.getElementById('current-shifts-summary'), loadingMiniCalendar: document.getElementById('loading-mini-calendar'), 
             saveCurrentVariantBtn: document.getElementById('save-current-variant-btn'), uniqueVariantsSummary: document.getElementById('unique-variants-summary'),
@@ -194,6 +197,7 @@
         let NUM_UNIQUE_SCHEDULES_TO_FIND = 25;
         let flatpickrInstances = {};
 
+        // --- INITIALIZATION AND PARAMETER HANDLING ---
         function init() {
             renderDoctorInputCards(); 
             dom.loadParamsBtn.addEventListener('click', loadInitialParameters);
@@ -217,46 +221,78 @@
             Object.entries(DOCTORS_DATA).forEach(([id, data]) => {
                 const card = document.createElement('div');
                 card.className = `p-4 border rounded-lg ${data.color} flex-shrink-0 w-4/5 sm:w-2/3 md:w-1/2 lg:w-auto`;
-                card.innerHTML = `<h4 class="font-bold ${data.textColor}">${data.name}</h4><div class="mt-2 text-sm space-y-2"><div><label for="min-shifts-${id}" class="block text-xs font-medium">Min</label><input type="number" id="min-shifts-${id}" value="${data.min}" class="mt-1 block w-full rounded-md shadow-sm sm:text-xs p-1"></div><div><label for="max-shifts-${id}" class="block text-xs font-medium">Max</label><input type="number" id="max-shifts-${id}" value="${data.max}" class="mt-1 block w-full rounded-md shadow-sm sm:text-xs p-1"></div><div><label for="days-off-${id}" class="block text-xs font-medium">Days Off</label><input type="text" id="days-off-${id}" placeholder="Select dates..." class="flatpickr-input mt-1 block w-full rounded-md shadow-sm sm:text-xs p-1"></div><div id="days-off-details-${id}" class="mt-2 space-y-1"></div><div><label for="days-on-${id}" class="block text-xs font-medium">Days On</label><input type="text" id="days-on-${id}" value="${data.daysOn.join(', ')}" class="flatpickr-input mt-1 block w-full rounded-md shadow-sm sm:text-xs p-1"></div></div>`;
+                card.innerHTML = `<h4 class="font-bold ${data.textColor}">${data.name}</h4><div class="mt-2 text-sm space-y-2"><div><label for="min-shifts-${id}" class="block text-xs font-medium">Min</label><input type="number" id="min-shifts-${id}" value="${data.min}" class="mt-1 block w-full rounded-md shadow-sm sm:text-xs p-1"></div><div><label for="max-shifts-${id}" class="block text-xs font-medium">Max</label><input type="number" id="max-shifts-${id}" value="${data.max}" class="mt-1 block w-full rounded-md shadow-sm sm:text-xs p-1"></div><div><label for="days-off-${id}" class="block text-xs font-medium">Days Off</label><input type="text" id="days-off-${id}" placeholder="Select dates..." class="flatpickr-input mt-1 block w-full rounded-md shadow-sm sm:text-xs p-1"></div><div id="days-off-details-${id}" class="mt-2 space-y-1"></div><div><label for="days-on-${id}" class="block text-xs font-medium">Days On</label><input type="text" id="days-on-${id}" placeholder="Select dates..." class="flatpickr-input mt-1 block w-full rounded-md shadow-sm sm:text-xs p-1"></div><div id="days-on-details-${id}" class="mt-2 space-y-1"></div></div>`;
                 container.appendChild(card);
-                renderDayOffDetails(id);
-                flatpickrInstances[`days-on-${id}`] = flatpickr(`#days-on-${id}`, { mode: "multiple", dateFormat: "Y-m-d", onOpen: onOpenHandler });
-                flatpickrInstances[`days-off-${id}`] = flatpickr(`#days-off-${id}`, {
-                    mode: "multiple", dateFormat: "Y-m-d", defaultDate: Object.keys(data.daysOff), onOpen: onOpenHandler,
-                    onChange: (selectedDates, dateStr, instance) => {
-                        const docId = instance.element.id.split('-')[2];
-                        const newDaysOff = {};
-                        selectedDates.forEach(date => { newDaysOff[date.toISOString().split('T')[0]] = DOCTORS_DATA[docId].daysOff[date.toISOString().split('T')[0]] || 'all'; });
-                        DOCTORS_DATA[docId].daysOff = newDaysOff;
-                        renderDayOffDetails(docId);
-                    }
-                });
+                renderDayRequestDetails(id, 'off');
+                renderDayRequestDetails(id, 'on');
+                flatpickrInstances[`days-on-${id}`] = flatpickr(`#days-on-${id}`, { mode: "multiple", dateFormat: "Y-m-d", defaultDate: Object.keys(data.daysOn), onOpen: onOpenHandler, onChange: (selectedDates, dateStr, instance) => handleDayRequestChange(instance, 'on') });
+                flatpickrInstances[`days-off-${id}`] = flatpickr(`#days-off-${id}`, { mode: "multiple", dateFormat: "Y-m-d", defaultDate: Object.keys(data.daysOff), onOpen: onOpenHandler, onChange: (selectedDates, dateStr, instance) => handleDayRequestChange(instance, 'off') });
             });
         }
         
-        function renderDayOffDetails(docId) {
-            const container = document.getElementById(`days-off-details-${docId}`);
+        function handleDayRequestChange(instance, type) {
+            const docId = instance.element.id.split('-')[2];
+            const dataKey = type === 'on' ? 'daysOn' : 'daysOff';
+            const currentRequests = DOCTORS_DATA[docId][dataKey];
+            const newRequests = {};
+            instance.selectedDates.forEach(date => {
+                const dateString = date.toISOString().split('T')[0];
+                let defaultValue = 'all';
+                // If it's a Saturday, it can only be 'all'
+                if (new Date(dateString).getUTCDay() === 6) {
+                    defaultValue = 'all';
+                }
+                newRequests[dateString] = currentRequests[dateString] || defaultValue;
+            });
+            DOCTORS_DATA[docId][dataKey] = newRequests;
+            renderDayRequestDetails(docId, type);
+        }
+
+        function renderDayRequestDetails(docId, type) {
+            const container = document.getElementById(`days-${type}-details-${docId}`);
             container.innerHTML = '';
-            const sortedDates = Object.keys(DOCTORS_DATA[docId].daysOff).sort();
+            const dataKey = type === 'on' ? 'daysOn' : 'daysOff';
+            const requestData = DOCTORS_DATA[docId][dataKey];
+            const sortedDates = Object.keys(requestData).sort();
             for (const date of sortedDates) {
-                const type = DOCTORS_DATA[docId].daysOff[date];
+                const shiftType = requestData[date];
                 const detailEl = document.createElement('div');
-                detailEl.className = 'day-off-detail';
-                detailEl.innerHTML = `<span>${date.substring(5)}</span><div><input type="radio" id="off-${docId}-${date}-all" name="off-${docId}-${date}" value="all" ${type === 'all' ? 'checked' : ''}><label for="off-${docId}-${date}-all">All</label><input type="radio" id="off-${docId}-${date}-morn" name="off-${docId}-${date}" value="morning" ${type === 'morning' ? 'checked' : ''}><label for="off-${docId}-${date}-morn">M</label><input type="radio" id="off-${docId}-${date}-aft" name="off-${docId}-${date}" value="afternoon" ${type === 'afternoon' ? 'checked' : ''}><label for="off-${docId}-${date}-aft">A</label></div><span class="remove-day-off" data-doc-id="${docId}" data-date="${date}">[x]</span>`;
+                detailEl.className = 'day-request-detail';
+                const dayOfWeek = new Date(date).getUTCDay();
+
+                let radioHTML;
+                if (dayOfWeek === 6) { // Saturday
+                    radioHTML = `
+                        <input type="radio" id="${type}-${docId}-${date}-all" name="${type}-${docId}-${date}" value="all" checked disabled><label for="${type}-${docId}-${date}-all">All Day (Sat)</label>
+                    `;
+                } else { // Weekday
+                    radioHTML = `
+                        <input type="radio" id="${type}-${docId}-${date}-all" name="${type}-${docId}-${date}" value="all" ${shiftType === 'all' ? 'checked' : ''}><label for="${type}-${docId}-${date}-all">All</label>
+                        <input type="radio" id="${type}-${docId}-${date}-morning" name="${type}-${docId}-${date}" value="morning" ${shiftType === 'morning' ? 'checked' : ''}><label for="${type}-${docId}-${date}-morn">M</label>
+                        <input type="radio" id="${type}-${docId}-${date}-afternoon" name="${type}-${docId}-${date}" value="afternoon" ${shiftType === 'afternoon' ? 'checked' : ''}><label for="${type}-${docId}-${date}-aft">A</label>
+                    `;
+                }
+
+                detailEl.innerHTML = `<span>${date.substring(5)}</span><div>${radioHTML}</div><span class="remove-day-request" data-doc-id="${docId}" data-date="${date}" data-type="${type}">[x]</span>`;
                 container.appendChild(detailEl);
             }
-            container.querySelectorAll('input[type="radio"]').forEach(radio => radio.addEventListener('change', e => { DOCTORS_DATA[e.target.id.split('-')[1]].daysOff[e.target.id.split('-')[2]] = e.target.value; }));
-            container.querySelectorAll('.remove-day-off').forEach(button => button.addEventListener('click', e => {
-                const { docId, date } = e.target.dataset;
-                delete DOCTORS_DATA[docId].daysOff[date];
-                renderDayOffDetails(docId);
-                flatpickrInstances[`days-off-${docId}`].setDate(Object.keys(DOCTORS_DATA[docId].daysOff));
+            container.querySelectorAll('input[type="radio"]').forEach(radio => radio.addEventListener('change', e => {
+                const [type, docId, date] = e.target.id.split('-');
+                const dataKey = type === 'on' ? 'daysOn' : 'daysOff';
+                DOCTORS_DATA[docId][dataKey][date] = e.target.value;
+            }));
+            container.querySelectorAll('.remove-day-request').forEach(button => button.addEventListener('click', e => {
+                const { docId, date, type } = e.target.dataset;
+                const dataKey = type === 'on' ? 'daysOn' : 'daysOff';
+                delete DOCTORS_DATA[docId][dataKey][date];
+                renderDayRequestDetails(docId, type);
+                flatpickrInstances[`days-${type}-${docId}`].setDate(Object.keys(DOCTORS_DATA[docId][dataKey]));
             }));
         }
         
         function saveParameters() {
             const params = { month: dom.monthInput.value, year: dom.yearInput.value, numUniqueSchedulesToFind: dom.numUniqueSchedulesToFindInput.value, enableSpecialRules: dom.prioritizeDoubleShiftsCheckbox.checked, doctors: {} };
-            Object.keys(DOCTORS_DATA).forEach(id => { params.doctors[id] = { min: document.getElementById(`min-shifts-${id}`).value, max: document.getElementById(`max-shifts-${id}`).value, daysOff: DOCTORS_DATA[id].daysOff, daysOn: document.getElementById(`days-on-${id}`).value, }; });
+            Object.keys(DOCTORS_DATA).forEach(id => { params.doctors[id] = { min: document.getElementById(`min-shifts-${id}`).value, max: document.getElementById(`max-shifts-${id}`).value, daysOff: DOCTORS_DATA[id].daysOff, daysOn: DOCTORS_DATA[id].daysOn }; });
             const filename = dom.saveFileNameInput.value || 'schedule_params.json';
             const blob = new Blob([JSON.stringify(params, null, 2)], { type: 'application/json' });
             const a = document.createElement('a');
@@ -280,7 +316,7 @@
                             DOCTORS_DATA[id].min = parseInt(params.doctors[id].min);
                             DOCTORS_DATA[id].max = parseInt(params.doctors[id].max);
                             DOCTORS_DATA[id].daysOff = params.doctors[id].daysOff || {};
-                            DOCTORS_DATA[id].daysOn = parseDates(params.doctors[id].daysOn);
+                            DOCTORS_DATA[id].daysOn = params.doctors[id].daysOn || {};
                         }
                     });
                     renderDoctorInputCards();
@@ -298,7 +334,6 @@
             Object.keys(DOCTORS_DATA).forEach(id => {
                 DOCTORS_DATA[id].min = parseInt(document.getElementById(`min-shifts-${id}`).value);
                 DOCTORS_DATA[id].max = parseInt(document.getElementById(`max-shifts-${id}`).value);
-                DOCTORS_DATA[id].daysOn = parseDates(document.getElementById(`days-on-${id}`).value);
             });
             identifyHolidays();
             resetUIForNewGeneration();
@@ -326,7 +361,8 @@
             }
             if (identifiedHolidays.length > 0) updateLog(`Identified holidays: ${identifiedHolidays.join(', ')}`);
         }
-
+        
+        // --- UI & UTILITY FUNCTIONS ---
         function updateLog(message) {
             const entry = document.createElement('p');
             entry.className = 'log-entry';
@@ -355,7 +391,8 @@
                 if (state.schedule[dateString]) {
                     Object.entries(state.schedule[dateString]).forEach(([shiftType, doctorId]) => {
                         const doctor = doctorId ? DOCTORS_DATA[doctorId] : null;
-                        html += `<div class="mt-1 p-1 rounded text-xxs sm:text-xs font-semibold ${doctor ? doctor.color : 'bg-gray-100'} ${doctor ? doctor.textColor : 'text-gray-500'}">${shiftType}: ${doctor ? doctor.name : '___'}</div>`;
+                        const shiftName = shiftType.charAt(0).toUpperCase() + shiftType.slice(1);
+                        html += `<div class="mt-1 p-1 rounded text-xxs sm:text-xs font-semibold ${doctor ? doctor.color : 'bg-gray-100'} ${doctor ? doctor.textColor : 'text-gray-500'}">${shiftName}: ${doctor ? doctor.name : '___'}</div>`;
                     });
                 }
                 html += `</td>`;
@@ -396,14 +433,18 @@
         function shuffleArray(arr) { for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; } }
         function calculateStdDev(arr) { if (arr.length < 2) return 0; const mean = arr.reduce((a, b) => a + b) / arr.length; return Math.sqrt(arr.map(x => Math.pow(x - mean, 2)).reduce((a, b) => a + b) / arr.length); }
         function convertScoreToPercentage(score) { if (score === Infinity) return 0; return Math.max(0, Math.min(100, 100 - (Math.max(0, score) / MAX_BADNESS_FOR_PERCENTAGE) * 100)); }
+        function formatElapsedTime(ms) { const totalSeconds = Math.floor(ms / 1000); const minutes = Math.floor(totalSeconds / 60); const seconds = totalSeconds % 60; return `${minutes}m ${seconds}s`; }
+        async function requestWakeLock() { if ('wakeLock' in navigator) { try { wakeLock = await navigator.wakeLock.request('screen'); updateLog('Screen wake lock activated.'); } catch (err) { console.error(`${err.name}, ${err.message}`); } } }
+        function releaseWakeLock() { if (wakeLock !== null) { wakeLock.release().then(() => { wakeLock = null; updateLog('Screen wake lock released.'); }); } }
 
+        // --- CORE SCHEDULING & SCORING LOGIC ---
         function getScheduleMetrics(schedule) {
             let doctorShifts = {}, satShifts = {};
             Object.keys(DOCTORS_DATA).forEach(id => { doctorShifts[id] = 0; satShifts[id] = 0; });
             for (const date in schedule) {
                 for (const shiftType in schedule[date]) {
                     const docId = schedule[date][shiftType];
-                    if (docId) { doctorShifts[docId]++; if (shiftType === 'Saturday') satShifts[docId]++; }
+                    if (docId) { doctorShifts[docId]++; if (shiftType === 'saturday') satShifts[docId]++; }
                 }
             }
             return { doctorShiftCounts: doctorShifts, saturdayShiftCounts: satShifts };
@@ -418,7 +459,14 @@
                 if (doctorShiftCounts[docId] < DOCTORS_DATA[docId].min || doctorShiftCounts[docId] > DOCTORS_DATA[docId].max) return { score: Infinity };
                 for (const date in DOCTORS_DATA[docId].daysOff) {
                     const offType = DOCTORS_DATA[docId].daysOff[date];
-                    if (schedule[date] && ((offType === 'all' && (schedule[date].Morning === docId || schedule[date].Afternoon === docId)) || (offType === 'morning' && schedule[date].Morning === docId) || (offType === 'afternoon' && schedule[date].Afternoon === docId))) return { score: Infinity };
+                    if (schedule[date] && ((offType === 'all' && (schedule[date].morning === docId || schedule[date].afternoon === docId)) || (offType === 'morning' && schedule[date].morning === docId) || (offType === 'afternoon' && schedule[date].afternoon === docId))) return { score: Infinity };
+                }
+                for (const date in DOCTORS_DATA[docId].daysOn) {
+                    const onType = DOCTORS_DATA[docId].daysOn[date];
+                    if(schedule[date]) {
+                        const isSaturday = new Date(date).getUTCDay() === 6;
+                        if ((onType === 'all' && !isSaturday && (schedule[date].morning !== docId || schedule[date].afternoon !== docId)) || (onType === 'morning' && schedule[date].morning !== docId) || (onType === 'afternoon' && schedule[date].afternoon !== docId) || (onType === 'all' && isSaturday && schedule[date].saturday !== docId)) return { score: Infinity };
+                    }
                 }
             }
             
@@ -454,7 +502,7 @@
             badness += calculateStdDev(normalizedShiftCounts) * 500;
             
             const totalAssignedShifts = Object.values(doctorShiftCounts).reduce((sum, count) => sum + count, 0);
-            badness -= totalAssignedShifts * 2; // Increased bonus
+            badness -= totalAssignedShifts * 10;
             explanation.bonuses.push(`Rewarded for having ${totalAssignedShifts} total assigned shifts`);
             explanation.penalties.push("Included standard penalties for Saturday and normalized workload distribution");
 
@@ -462,10 +510,11 @@
                 let doubleShiftPenaltyCount = 0, doubleShiftBonusCount = 0, midMonthBonusCount = 0;
                 const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
                 Object.entries(schedule).forEach(([date, dayShifts]) => {
-                    const morningDoc = dayShifts.Morning;
-                    if (morningDoc && morningDoc === dayShifts.Afternoon) {
+                    const morningDoc = dayShifts.morning;
+                    if (morningDoc && morningDoc === dayShifts.afternoon) {
                         const doctorData = DOCTORS_DATA[morningDoc];
-                        if (doctorData.prefersDoubleShifts) doubleShiftBonusCount++; else if (doctorData.avoidsDoubleShifts) doubleShiftPenaltyCount++;
+                        if (doctorData.prefersDoubleShifts && DOCTORS_DATA[morningDoc].daysOn[date] !== 'all') doubleShiftBonusCount++; 
+                        else if (doctorData.avoidsDoubleShifts) doubleShiftPenaltyCount++;
                     }
                     const dayOfMonth = new Date(date).getDate();
                     if (dayOfMonth >= 10 && dayOfMonth <= 20) {
@@ -487,29 +536,12 @@
             return { score: badness + Math.random(), explanation, schedule };
         }
         
-        function createFinalChart() {
-            const ctx = document.getElementById('final-chart').getContext('2d');
-            const { doctorShiftCounts } = getScheduleMetrics(state.schedule);
-            if (window.myChart) window.myChart.destroy();
-            window.myChart = new Chart(ctx, {
-                type: 'bar',
-                data: {
-                    labels: Object.values(DOCTORS_DATA).map(d => d.name),
-                    datasets: [
-                        { label: 'Assigned', data: Object.values(doctorShiftCounts), backgroundColor: 'rgba(14, 165, 233, 0.6)' },
-                        { label: 'Min', data: Object.values(DOCTORS_DATA).map(d => d.min), type: 'line', fill: false, borderColor: 'rgba(239, 68, 68, 0.7)', borderWidth: 2, borderDash: [5, 5] },
-                        { label: 'Max', data: Object.values(DOCTORS_DATA).map(d => d.max), type: 'line', fill: false, borderColor: 'rgba(34, 197, 94, 0.7)', borderWidth: 2, borderDash: [5, 5] }
-                    ]
-                },
-                options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true }}, plugins: { title: { display: true, text: `Final Shift Distribution`, font: { size: 18 }}}}
-            });
-        }
-
         function isDoctorAvailableForShift(docId, shift) {
             const offType = DOCTORS_DATA[docId].daysOff[shift.date];
             return !(offType === 'all' || (offType && offType.toLowerCase() === shift.type.toLowerCase()));
         }
 
+        // --- MAIN GENERATION ALGORITHM (THREE-PHASE) ---
         async function generateScheduleIterative() {
             let currentSchedule = {};
             const allShifts = [];
@@ -519,20 +551,41 @@
                 const dateString = date.toISOString().split('T')[0];
                 if (date.getDay() === 0 || identifiedHolidays.includes(dateString)) continue;
                 currentSchedule[dateString] = {};
-                const shifts = date.getDay() < 6 ? ['Morning', 'Afternoon'] : ['Saturday'];
+                const shifts = date.getDay() < 6 ? ['morning', 'afternoon'] : ['saturday'];
                 shifts.forEach(type => {
                     currentSchedule[dateString][type] = null;
                     allShifts.push({ date: dateString, type });
                 });
             }
             
+            Object.entries(DOCTORS_DATA).forEach(([docId, data]) => {
+                for (const date in data.daysOn) {
+                    const onType = data.daysOn[date];
+                    if (currentSchedule[date]) {
+                        const isSaturday = new Date(date).getUTCDay() === 6;
+                        if (isSaturday) {
+                            if(isDoctorAvailableForShift(docId, { date, type: 'saturday' })) {
+                                delete currentSchedule[date]['morning'];
+                                delete currentSchedule[date]['afternoon'];
+                                currentSchedule[date]['saturday'] = docId;
+                            }
+                        } else {
+                            if (isDoctorAvailableForShift(docId, { date, type: 'morning' }) && (onType === 'all' || onType === 'morning')) currentSchedule[date]['morning'] = docId;
+                            if (isDoctorAvailableForShift(docId, { date, type: 'afternoon' }) && (onType === 'all' || onType === 'afternoon')) currentSchedule[date]['afternoon'] = docId;
+                        }
+                    }
+                }
+            });
+
             shuffleArray(allShifts);
             for (const shift of allShifts) {
-                const available = Object.keys(DOCTORS_DATA).filter(id => isDoctorAvailableForShift(id, shift) && getScheduleMetrics(currentSchedule).doctorShiftCounts[id] < DOCTORS_DATA[id].max);
-                if (available.length > 0) currentSchedule[shift.date][shift.type] = available[Math.floor(Math.random() * available.length)];
+                if (currentSchedule[shift.date][shift.type] === null) {
+                    const available = Object.keys(DOCTORS_DATA).filter(id => isDoctorAvailableForShift(id, shift) && getScheduleMetrics(currentSchedule).doctorShiftCounts[id] < DOCTORS_DATA[id].max);
+                    if (available.length > 0) currentSchedule[shift.date][shift.type] = available[Math.floor(Math.random() * available.length)];
+                }
             }
             
-            const unassignedShifts = allShifts.filter(shift => currentSchedule[shift.date][shift.type] === null);
+            const unassignedShifts = allShifts.filter(shift => currentSchedule[shift.date] && currentSchedule[shift.date][shift.type] === null);
             for (const shift of unassignedShifts) {
                 const currentCounts = getScheduleMetrics(currentSchedule).doctorShiftCounts;
                 const availableDoctors = Object.keys(DOCTORS_DATA)
@@ -547,48 +600,52 @@
             for (let i = 0; i < INTERNAL_ITERATIONS_PER_SCHEDULE_GEN; i++) {
                 if (allShifts.length === 0) break;
                 const shift = allShifts[Math.floor(Math.random() * allShifts.length)];
-                const originalDoc = currentSchedule[shift.date][shift.type];
+                let tempSchedule = JSON.parse(JSON.stringify(bestSchedule));
+                
+                const originalDoc = tempSchedule[shift.date][shift.type];
+                if (originalDoc && DOCTORS_DATA[originalDoc].daysOn[shift.date]) continue;
+
                 const candidates = Object.keys(DOCTORS_DATA).filter(id => isDoctorAvailableForShift(id, shift));
                 candidates.push(null);
+                const newDoc = candidates[Math.floor(Math.random() * candidates.length)];
+
+                tempSchedule[shift.date][shift.type] = newDoc;
+                if (newDoc && getScheduleMetrics(tempSchedule).doctorShiftCounts[newDoc] > DOCTORS_DATA[newDoc].max) continue;
                 
-                let accepted = false;
-                for (const newDoc of candidates) {
-                    currentSchedule[shift.date][shift.type] = newDoc;
-                    if (newDoc && getScheduleMetrics(currentSchedule).doctorShiftCounts[newDoc] > DOCTORS_DATA[newDoc].max) continue;
-                    const { score: newBadness } = calculateScheduleBadness(currentSchedule);
-                    if (newBadness < bestBadness) {
-                        bestSchedule = JSON.parse(JSON.stringify(currentSchedule));
-                        bestBadness = newBadness;
-                        accepted = true;
-                        break;
-                    }
+                const { score: newBadness } = calculateScheduleBadness(tempSchedule);
+                if (newBadness < bestBadness) {
+                    bestSchedule = tempSchedule;
+                    bestBadness = newBadness;
                 }
-                if (!accepted) currentSchedule[shift.date][shift.type] = originalDoc;
             }
             return calculateScheduleBadness(bestSchedule);
         }
 
-        async function polishSchedule(schedule, allShifts) {
+        async function polishSchedule(schedule, iterations) {
             let bestSchedule = JSON.parse(JSON.stringify(schedule));
-            let { score: bestScore } = calculateScheduleBadness(bestSchedule);
-            for (let i = 0; i < POLISHING_ITERATIONS; i++) {
+            let currentBest = calculateScheduleBadness(bestSchedule);
+            if (currentBest.score === Infinity) return currentBest;
+            const allShifts = Object.entries(bestSchedule).flatMap(([date, shifts]) => Object.keys(shifts).map(type => ({date, type})));
+
+            for (let i = 0; i < iterations; i++) {
+                if (allShifts.length < 2) break;
                 const shift1 = allShifts[Math.floor(Math.random() * allShifts.length)];
                 const shift2 = allShifts[Math.floor(Math.random() * allShifts.length)];
                 if (shift1.date === shift2.date) continue;
                 
-                const doc1 = bestSchedule[shift1.date][shift1.type];
-                const doc2 = bestSchedule[shift2.date][shift2.type];
+                let tempSchedule = JSON.parse(JSON.stringify(bestSchedule));
+                const doc1 = tempSchedule[shift1.date][shift1.type];
+                const doc2 = tempSchedule[shift2.date][shift2.type];
+
+                if ((doc1 && DOCTORS_DATA[doc1].daysOn[shift1.date]) || (doc2 && DOCTORS_DATA[doc2].daysOn[shift2.date])) continue;
                 
-                // Swap
-                bestSchedule[shift1.date][shift1.type] = doc2;
-                bestSchedule[shift2.date][shift2.type] = doc1;
+                tempSchedule[shift1.date][shift1.type] = doc2;
+                tempSchedule[shift2.date][shift2.type] = doc1;
                 
-                const { score: newScore } = calculateScheduleBadness(bestSchedule);
-                if (newScore < bestScore) {
-                    bestScore = newScore;
-                } else {
-                    bestSchedule[shift1.date][shift1.type] = doc1;
-                    bestSchedule[shift2.date][shift2.type] = doc2;
+                const result = calculateScheduleBadness(tempSchedule);
+                if (result.score < currentBest.score) {
+                    currentBest = result;
+                    bestSchedule = JSON.parse(JSON.stringify(tempSchedule));
                 }
             }
             return calculateScheduleBadness(bestSchedule);
@@ -606,10 +663,10 @@
             dom.generateVariantsBtn.disabled = true;
             dom.continueGenerationBtn.classList.add('hidden');
             dom.loadingOverlay.classList.remove('hidden');
-            updateLog(`Phase 1: Generating new unique schedules...`);
-
             const generationStartTime = performance.now();
 
+            dom.loadingTitle.textContent = "Phase 1: Exploring for initial variants...";
+            updateLog(`Phase 1: Generating new unique schedules...`);
             while (topVariants.length < NUM_UNIQUE_SCHEDULES_TO_FIND && totalAttempts < MAX_OVERALL_ATTEMPTS_FOR_UNIQUE_VARIANTS && !isGenerationCancelled) {
                 totalAttempts++;
                 const startTime = performance.now();
@@ -618,13 +675,11 @@
 
                 if (result.score === Infinity) continue;
                 
-                // Dynamic Polishing
-                const avgScore = topVariants.length > 0 ? topVariants.reduce((sum, v) => sum + v.score, 0) / topVariants.length : -Infinity;
+                const avgScore = topVariants.length > 0 ? topVariants.reduce((sum, v) => sum + v.score, 0) / topVariants.length : Infinity;
                 if (result.score < avgScore) {
-                    dom.loadingTitle.textContent = "Phase 2: Polishing candidate...";
-                    const allShifts = Object.entries(result.schedule).flatMap(([date, shifts]) => Object.keys(shifts).map(type => ({date, type})));
-                    result = await polishSchedule(result.schedule, allShifts);
-                    dom.loadingTitle.textContent = "Phase 1: Generating schedules...";
+                    dom.loadingTitle.textContent = "Phase 2: Polishing a promising candidate...";
+                    result = await polishSchedule(result.schedule, POLISHING_ITERATIONS);
+                    dom.loadingTitle.textContent = "Phase 1: Exploring for initial variants...";
                 }
                 
                 const hash = JSON.stringify(result.schedule);
@@ -636,7 +691,6 @@
                 }
                 
                 dom.loadingProgress.textContent = `Attempt ${totalAttempts}/${MAX_OVERALL_ATTEMPTS_FOR_UNIQUE_VARIANTS}...`;
-                dom.currentGeneratedScoreSummary.textContent = `Current Candidate Score: ${convertScoreToPercentage(result.score).toFixed(0)}%`;
                 const { doctorShiftCounts } = getScheduleMetrics(result.schedule);
                 dom.currentShiftsSummary.textContent = `Shifts: ` + Object.entries(doctorShiftCounts).map(([id, c]) => `${DOCTORS_DATA[id].name.charAt(4)}:${c}`).join(' ');
                 renderMiniCalendar(result.schedule);
@@ -650,6 +704,26 @@
                 dom.avgTimeSummary.textContent = `Average Generation Time: ${avgTime.toFixed(1)} ms`;
                 dom.elapsedTimeSummary.textContent = `Time Elapsed: ${formatElapsedTime(performance.now() - generationStartTime)}`;
                 await new Promise(r => setTimeout(r, 0));
+            }
+
+            if (!isGenerationCancelled && topVariants.length > 0) {
+                dom.loadingTitle.textContent = "Phase 3: Performing deep optimization on all found variants...";
+                updateLog(`Phase 3: Starting deep optimization...`);
+                await new Promise(r => setTimeout(r, 100));
+                for (let i = 0; i < topVariants.length; i++) {
+                    if (isGenerationCancelled) break;
+                    const variant = topVariants[i];
+                    dom.loadingProgress.textContent = `Optimizing variant ${i + 1}/${topVariants.length}...`;
+                    const polishedResult = await polishSchedule(variant.schedule, DEEP_OPTIMIZATION_ITERATIONS);
+                    if (polishedResult.score < variant.score) {
+                        const newHash = JSON.stringify(polishedResult.schedule);
+                        if (!topVariants.some(v => v.hash === newHash)) {
+                            topVariants[i] = { ...polishedResult, hash: newHash };
+                        }
+                    }
+                    await new Promise(r => setTimeout(r, 0));
+                }
+                topVariants.sort((a, b) => a.score - b.score);
             }
 
             releaseWakeLock();
@@ -678,26 +752,23 @@
             }
         }
         
-        function formatElapsedTime(ms) {
-            const totalSeconds = Math.floor(ms / 1000);
-            const minutes = Math.floor(totalSeconds / 60);
-            const seconds = totalSeconds % 60;
-            return `${minutes}m ${seconds}s`;
-        }
-        
-        async function requestWakeLock() {
-            if ('wakeLock' in navigator) {
-                try {
-                    wakeLock = await navigator.wakeLock.request('screen');
-                    updateLog('Screen wake lock activated.');
-                } catch (err) { console.error(`${err.name}, ${err.message}`); }
-            }
-        }
-
-        function releaseWakeLock() {
-            if (wakeLock !== null) {
-                wakeLock.release().then(() => { wakeLock = null; updateLog('Screen wake lock released.'); });
-            }
+        // --- FINAL UI DISPLAY & ACTIONS ---
+        function createFinalChart() {
+            const ctx = document.getElementById('final-chart').getContext('2d');
+            const { doctorShiftCounts } = getScheduleMetrics(state.schedule);
+            if (window.myChart) window.myChart.destroy();
+            window.myChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: Object.values(DOCTORS_DATA).map(d => d.name),
+                    datasets: [
+                        { label: 'Assigned', data: Object.values(doctorShiftCounts), backgroundColor: 'rgba(14, 165, 233, 0.6)' },
+                        { label: 'Min', data: Object.values(DOCTORS_DATA).map(d => d.min), type: 'line', fill: false, borderColor: 'rgba(239, 68, 68, 0.7)', borderWidth: 2, borderDash: [5, 5] },
+                        { label: 'Max', data: Object.values(DOCTORS_DATA).map(d => d.max), type: 'line', fill: false, borderColor: 'rgba(34, 197, 94, 0.7)', borderWidth: 2, borderDash: [5, 5] }
+                    ]
+                },
+                options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true }}, plugins: { title: { display: true, text: `Final Shift Distribution`, font: { size: 18 }}}}
+            });
         }
         
         function generatePrintableHTML(variantData) {
@@ -758,7 +829,8 @@
                     Object.entries(schedule[dateString]).forEach(([shiftType, doctorId]) => {
                         if (doctorId) {
                             const doctor = DOCTORS_DATA[doctorId];
-                            html += `<div class="shift" style="background-color:${doctor.printBgColor}; color:${doctor.printTextColor};"><strong>${shiftType}:</strong> ${doctor.name}</div>`;
+                            const shiftName = shiftType.charAt(0).toUpperCase() + shiftType.slice(1);
+                            html += `<div class="shift" style="background-color:${doctor.printBgColor}; color:${doctor.printTextColor};"><strong>${shiftName}:</strong> ${doctor.name}</div>`;
                         }
                     });
                 }
