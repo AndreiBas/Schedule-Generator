@@ -40,7 +40,7 @@
                 <div class="p-4 bg-white rounded-lg shadow">
                     <p class="text-slate-600 mb-6">Define the month and year for the schedule, and customize each doctor's parameters. For "Days Off/On", select dates in the calendar, then specify if the request is for the full day, morning, or afternoon.</p>
                     
-                    <div class="mb-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="mb-6 grid grid-cols-1 md:grid-cols-3 gap-4">
                         <div>
                             <label for="month-input" class="block text-sm font-medium text-slate-700">Month (1-12)</label>
                             <input type="number" id="month-input" value="8" min="1" max="12" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-sky-500 focus:ring-sky-500 sm:text-sm p-2">
@@ -50,8 +50,12 @@
                             <input type="number" id="year-input" value="2025" min="2000" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-sky-500 focus:ring-sky-500 sm:text-sm p-2">
                         </div>
                         <div>
-                            <label for="num-unique-schedules-to-find-input" class="block text-sm font-medium text-slate-700">Number of Unique Schedules to Find</label>
+                            <label for="num-unique-schedules-to-find-input" class="block text-sm font-medium text-slate-700">Unique Schedules to Find</label>
                             <input type="number" id="num-unique-schedules-to-find-input" value="25" min="1" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-sky-500 focus:ring-sky-500 sm:text-sm p-2">
+                        </div>
+                        <div class="md:col-start-1">
+                            <label for="max-attempts-input" class="block text-sm font-medium text-slate-700">Max Generation Attempts</label>
+                            <input type="number" id="max-attempts-input" value="10000" min="100" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-sky-500 focus:ring-sky-500 sm:text-sm p-2">
                         </div>
                     </div>
                     
@@ -143,7 +147,6 @@
 
         // --- CORE ALGORITHM CONSTANTS ---
         const INTERNAL_ITERATIONS_PER_SCHEDULE_GEN = 1000;
-        const MAX_OVERALL_ATTEMPTS_FOR_UNIQUE_VARIANTS = 10000;
         const DISPLAY_BEST_VARIANTS_LIMIT = 25;
         const MAX_BADNESS_FOR_PERCENTAGE = 4000;
         const POLISHING_ITERATIONS = 500;
@@ -182,6 +185,7 @@
             saveFileNameInput: document.getElementById('save-file-name-input'), logContent: document.getElementById('log-content'),
             monthInput: document.getElementById('month-input'), yearInput: document.getElementById('year-input'),
             numUniqueSchedulesToFindInput: document.getElementById('num-unique-schedules-to-find-input'), 
+            maxAttemptsInput: document.getElementById('max-attempts-input'),
             prioritizeDoubleShiftsCheckbox: document.getElementById('prioritize-double-shifts'), 
             loadingOverlay: document.getElementById('loading-overlay'), loadingProgress: document.getElementById('loading-progress'),
             loadingTitle: document.getElementById('loading-title'),
@@ -195,6 +199,7 @@
         
         let enableSpecialRules = false; 
         let NUM_UNIQUE_SCHEDULES_TO_FIND = 25;
+        let MAX_ATTEMPTS = 10000;
         let flatpickrInstances = {};
 
         // --- INITIALIZATION AND PARAMETER HANDLING ---
@@ -291,7 +296,14 @@
         }
         
         function saveParameters() {
-            const params = { month: dom.monthInput.value, year: dom.yearInput.value, numUniqueSchedulesToFind: dom.numUniqueSchedulesToFindInput.value, enableSpecialRules: dom.prioritizeDoubleShiftsCheckbox.checked, doctors: {} };
+            const params = { 
+                month: dom.monthInput.value, 
+                year: dom.yearInput.value, 
+                numUniqueSchedulesToFind: dom.numUniqueSchedulesToFindInput.value, 
+                maxAttempts: dom.maxAttemptsInput.value,
+                enableSpecialRules: dom.prioritizeDoubleShiftsCheckbox.checked, 
+                doctors: {} 
+            };
             Object.keys(DOCTORS_DATA).forEach(id => { params.doctors[id] = { min: document.getElementById(`min-shifts-${id}`).value, max: document.getElementById(`max-shifts-${id}`).value, daysOff: DOCTORS_DATA[id].daysOff, daysOn: DOCTORS_DATA[id].daysOn }; });
             const filename = dom.saveFileNameInput.value || 'schedule_params.json';
             const blob = new Blob([JSON.stringify(params, null, 2)], { type: 'application/json' });
@@ -308,8 +320,10 @@
             reader.onload = e => {
                 try {
                     const params = JSON.parse(e.target.result);
-                    dom.monthInput.value = params.month; dom.yearInput.value = params.year;
+                    dom.monthInput.value = params.month; 
+                    dom.yearInput.value = params.year;
                     dom.numUniqueSchedulesToFindInput.value = params.numUniqueSchedulesToFind || 25;
+                    dom.maxAttemptsInput.value = params.maxAttempts || 10000;
                     dom.prioritizeDoubleShiftsCheckbox.checked = params.enableSpecialRules || false;
                     Object.keys(DOCTORS_DATA).forEach(id => {
                         if (params.doctors[id]) {
@@ -330,6 +344,7 @@
             currentMonth = parseInt(dom.monthInput.value) - 1;
             currentYear = parseInt(dom.yearInput.value);
             NUM_UNIQUE_SCHEDULES_TO_FIND = parseInt(dom.numUniqueSchedulesToFindInput.value);
+            MAX_ATTEMPTS = parseInt(dom.maxAttemptsInput.value);
             enableSpecialRules = dom.prioritizeDoubleShiftsCheckbox.checked;
             Object.keys(DOCTORS_DATA).forEach(id => {
                 DOCTORS_DATA[id].min = parseInt(document.getElementById(`min-shifts-${id}`).value);
@@ -432,7 +447,7 @@
 
         function shuffleArray(arr) { for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; } }
         function calculateStdDev(arr) { if (arr.length < 2) return 0; const mean = arr.reduce((a, b) => a + b) / arr.length; return Math.sqrt(arr.map(x => Math.pow(x - mean, 2)).reduce((a, b) => a + b) / arr.length); }
-        function convertScoreToPercentage(score) { if (score === Infinity) return 0; return Math.max(0, Math.min(100, 100 - (Math.max(0, score) / MAX_BADNESS_FOR_PERCENTAGE) * 100)); }
+        function convertScoreToPercentage(penalty) { if (penalty === Infinity) return 0; return Math.max(0, Math.min(100, 100 - (Math.max(0, penalty) / MAX_BADNESS_FOR_PERCENTAGE) * 100)); }
         function formatElapsedTime(ms) { const totalSeconds = Math.floor(ms / 1000); const minutes = Math.floor(totalSeconds / 60); const seconds = totalSeconds % 60; return `${minutes}m ${seconds}s`; }
         async function requestWakeLock() { if ('wakeLock' in navigator) { try { wakeLock = await navigator.wakeLock.request('screen'); updateLog('Screen wake lock activated.'); } catch (err) { console.error(`${err.name}, ${err.message}`); } } }
         function releaseWakeLock() { if (wakeLock !== null) { wakeLock.release().then(() => { wakeLock = null; updateLog('Screen wake lock released.'); }); } }
@@ -450,29 +465,46 @@
             return { doctorShiftCounts: doctorShifts, saturdayShiftCounts: satShifts };
         }
         
+        function isScoreBetter(newScore, oldScore) {
+            if (newScore.penalty < oldScore.penalty) return true;
+            if (newScore.penalty > oldScore.penalty) return false;
+            return newScore.bonus > oldScore.bonus;
+        }
+
         function calculateScheduleBadness(schedule) {
             const explanation = { penalties: [], bonuses: [] };
-            let badness = 0;
+            let penaltyScore = 0;
+            let bonusScore = 0;
             const { doctorShiftCounts, saturdayShiftCounts } = getScheduleMetrics(schedule);
             
             for (const docId in DOCTORS_DATA) {
-                if (doctorShiftCounts[docId] < DOCTORS_DATA[docId].min || doctorShiftCounts[docId] > DOCTORS_DATA[docId].max) return { score: Infinity };
+                if (doctorShiftCounts[docId] < DOCTORS_DATA[docId].min || doctorShiftCounts[docId] > DOCTORS_DATA[docId].max) return { penalty: Infinity, bonus: 0 };
+
                 for (const date in DOCTORS_DATA[docId].daysOff) {
                     const offType = DOCTORS_DATA[docId].daysOff[date];
-                    if (schedule[date] && ((offType === 'all' && (schedule[date].morning === docId || schedule[date].afternoon === docId)) || (offType === 'morning' && schedule[date].morning === docId) || (offType === 'afternoon' && schedule[date].afternoon === docId))) return { score: Infinity };
+                    if (schedule[date]) {
+                        if (
+                            (offType === 'all' && (schedule[date].morning === docId || schedule[date].afternoon === docId || schedule[date].saturday === docId)) ||
+                            (offType === 'morning' && schedule[date].morning === docId) ||
+                            (offType === 'afternoon' && schedule[date].afternoon === docId)
+                        ) {
+                            return { penalty: Infinity, bonus: 0 };
+                        }
+                    }
                 }
+
                 for (const date in DOCTORS_DATA[docId].daysOn) {
                     const onType = DOCTORS_DATA[docId].daysOn[date];
                     if(schedule[date]) {
                         const isSaturday = new Date(date).getUTCDay() === 6;
-                        if ((onType === 'all' && !isSaturday && (schedule[date].morning !== docId || schedule[date].afternoon !== docId)) || (onType === 'morning' && schedule[date].morning !== docId) || (onType === 'afternoon' && schedule[date].afternoon !== docId) || (onType === 'all' && isSaturday && schedule[date].saturday !== docId)) return { score: Infinity };
+                        if ((onType === 'all' && !isSaturday && (schedule[date].morning !== docId || schedule[date].afternoon !== docId)) || (onType === 'morning' && schedule[date].morning !== docId) || (onType === 'afternoon' && schedule[date].afternoon !== docId) || (onType === 'all' && isSaturday && schedule[date].saturday !== docId)) return { penalty: Infinity, bonus: 0 };
                     }
                 }
             }
             
             let unassignedCount = 0;
             Object.values(schedule).forEach(day => Object.values(day).forEach(doc => { if (doc === null) unassignedCount++; }));
-            if (unassignedCount > 0) { badness += unassignedCount * 500; explanation.penalties.push(`Had ${unassignedCount} unassigned shift(s)`); }
+            if (unassignedCount > 0) { penaltyScore += unassignedCount * 500; explanation.penalties.push(`Had ${unassignedCount} unassigned shift(s)`); }
 
             let consecutiveCount = 0;
             for(const docId in DOCTORS_DATA) {
@@ -482,29 +514,29 @@
                     if(schedule[today] && Object.values(schedule[today]).includes(docId) && schedule[tomorrow] && Object.values(schedule[tomorrow]).includes(docId)) consecutiveCount++;
                 }
             }
-            if(consecutiveCount > 0) { badness += consecutiveCount * 400; explanation.penalties.push(`Contained ${consecutiveCount} instance(s) of consecutive work days`); }
+            if(consecutiveCount > 0) { penaltyScore += consecutiveCount * 400; explanation.penalties.push(`Contained ${consecutiveCount} instance(s) of consecutive work days`); }
 
             let saturdayOverloadCount = 0;
             for (const docId in DOCTORS_DATA) {
                 const count = saturdayShiftCounts[docId];
                 if (count > 1) {
                     const overloadInstances = count - 1;
-                    badness += overloadInstances * 750;
+                    penaltyScore += overloadInstances * 750;
                     saturdayOverloadCount += overloadInstances;
                 }
             }
-             if (saturdayOverloadCount > 0) explanation.penalties.push(`Contained ${saturdayOverloadCount} instance(s) of Saturday overload`);
+            if (saturdayOverloadCount > 0) explanation.penalties.push(`Contained ${saturdayOverloadCount} instance(s) of Saturday overload`);
 
             const normalizedShiftCounts = Object.entries(doctorShiftCounts).map(([docId, count]) => {
                 const { min, max } = DOCTORS_DATA[docId];
                 return (max - min) > 0 ? (count - min) / (max - min) : 0;
             });
-            badness += calculateStdDev(normalizedShiftCounts) * 500;
+            penaltyScore += calculateStdDev(normalizedShiftCounts) * 500;
+            explanation.penalties.push("Included standard penalties for Saturday and normalized workload distribution");
             
             const totalAssignedShifts = Object.values(doctorShiftCounts).reduce((sum, count) => sum + count, 0);
-            badness -= totalAssignedShifts * 10;
+            bonusScore += totalAssignedShifts * 10;
             explanation.bonuses.push(`Rewarded for having ${totalAssignedShifts} total assigned shifts`);
-            explanation.penalties.push("Included standard penalties for Saturday and normalized workload distribution");
 
             if (enableSpecialRules) {
                 let doubleShiftPenaltyCount = 0, doubleShiftBonusCount = 0, midMonthBonusCount = 0;
@@ -528,12 +560,12 @@
                         });
                     }
                 });
-                if (doubleShiftPenaltyCount > 0) { badness += doubleShiftPenaltyCount * 350; explanation.penalties.push(`Contained ${doubleShiftPenaltyCount} discouraged double shift(s)`); }
-                if (doubleShiftBonusCount > 0) { badness -= doubleShiftBonusCount * 2; explanation.bonuses.push(`Awarded for ${doubleShiftBonusCount} preferred double shift(s)`); }
-                if (midMonthBonusCount > 0) { badness -= midMonthBonusCount * 20; explanation.bonuses.push(`Awarded for ${midMonthBonusCount} shift(s) meeting mid-month preference`); }
+                if (doubleShiftPenaltyCount > 0) { penaltyScore += doubleShiftPenaltyCount * 350; explanation.penalties.push(`Contained ${doubleShiftPenaltyCount} discouraged double shift(s)`); }
+                if (doubleShiftBonusCount > 0) { bonusScore += doubleShiftBonusCount * 2; explanation.bonuses.push(`Awarded for ${doubleShiftBonusCount} preferred double shift(s)`); }
+                if (midMonthBonusCount > 0) { bonusScore += midMonthBonusCount * 20; explanation.bonuses.push(`Awarded for ${midMonthBonusCount} mid-month preference shift(s)`); }
             }
             
-            return { score: badness + Math.random(), explanation, schedule };
+            return { penalty: penaltyScore, bonus: bonusScore, explanation, schedule };
         }
         
         function isDoctorAvailableForShift(docId, shift) {
@@ -595,7 +627,7 @@
             }
 
             let bestSchedule = JSON.parse(JSON.stringify(currentSchedule));
-            let { score: bestBadness } = calculateScheduleBadness(bestSchedule);
+            let bestScore = calculateScheduleBadness(bestSchedule);
 
             for (let i = 0; i < INTERNAL_ITERATIONS_PER_SCHEDULE_GEN; i++) {
                 if (allShifts.length === 0) break;
@@ -612,10 +644,10 @@
                 tempSchedule[shift.date][shift.type] = newDoc;
                 if (newDoc && getScheduleMetrics(tempSchedule).doctorShiftCounts[newDoc] > DOCTORS_DATA[newDoc].max) continue;
                 
-                const { score: newBadness } = calculateScheduleBadness(tempSchedule);
-                if (newBadness < bestBadness) {
+                const newScore = calculateScheduleBadness(tempSchedule);
+                if (isScoreBetter(newScore, bestScore)) {
                     bestSchedule = tempSchedule;
-                    bestBadness = newBadness;
+                    bestScore = newScore;
                 }
             }
             return calculateScheduleBadness(bestSchedule);
@@ -624,7 +656,7 @@
         async function polishSchedule(schedule, iterations) {
             let bestSchedule = JSON.parse(JSON.stringify(schedule));
             let currentBest = calculateScheduleBadness(bestSchedule);
-            if (currentBest.score === Infinity) return currentBest;
+            if (currentBest.penalty === Infinity) return currentBest;
             const allShifts = Object.entries(bestSchedule).flatMap(([date, shifts]) => Object.keys(shifts).map(type => ({date, type})));
 
             for (let i = 0; i < iterations; i++) {
@@ -643,7 +675,7 @@
                 tempSchedule[shift2.date][shift2.type] = doc1;
                 
                 const result = calculateScheduleBadness(tempSchedule);
-                if (result.score < currentBest.score) {
+                if (isScoreBetter(result, currentBest)) {
                     currentBest = result;
                     bestSchedule = JSON.parse(JSON.stringify(tempSchedule));
                 }
@@ -663,20 +695,21 @@
             dom.generateVariantsBtn.disabled = true;
             dom.continueGenerationBtn.classList.add('hidden');
             dom.loadingOverlay.classList.remove('hidden');
+            dom.stopGenerationBtn.textContent = 'Stop Generation';
             const generationStartTime = performance.now();
 
             dom.loadingTitle.textContent = "Phase 1: Exploring for initial variants...";
             updateLog(`Phase 1: Generating new unique schedules...`);
-            while (topVariants.length < NUM_UNIQUE_SCHEDULES_TO_FIND && totalAttempts < MAX_OVERALL_ATTEMPTS_FOR_UNIQUE_VARIANTS && !isGenerationCancelled) {
+            while (topVariants.length < NUM_UNIQUE_SCHEDULES_TO_FIND && totalAttempts < MAX_ATTEMPTS && !isGenerationCancelled) {
                 totalAttempts++;
                 const startTime = performance.now();
                 let result = await generateScheduleIterative();
                 totalGenerationTime += performance.now() - startTime;
 
-                if (result.score === Infinity) continue;
+                if (result.penalty === Infinity) continue;
                 
-                const avgScore = topVariants.length > 0 ? topVariants.reduce((sum, v) => sum + v.score, 0) / topVariants.length : Infinity;
-                if (result.score < avgScore) {
+                const avgPenalty = topVariants.length > 0 ? topVariants.reduce((sum, v) => sum + v.penalty, 0) / topVariants.length : Infinity;
+                if (result.penalty < avgPenalty) {
                     dom.loadingTitle.textContent = "Phase 2: Polishing a promising candidate...";
                     result = await polishSchedule(result.schedule, POLISHING_ITERATIONS);
                     dom.loadingTitle.textContent = "Phase 1: Exploring for initial variants...";
@@ -685,20 +718,23 @@
                 const hash = JSON.stringify(result.schedule);
                 if (!topVariants.some(v => v.hash === hash)) {
                     topVariants.push({ ...result, hash });
-                    topVariants.sort((a, b) => a.score - b.score);
+                    topVariants.sort((a, b) => {
+                        if (a.penalty !== b.penalty) return a.penalty - b.penalty;
+                        return b.bonus - a.bonus;
+                    });
                     if (topVariants.length > DISPLAY_BEST_VARIANTS_LIMIT) topVariants.pop();
-                    updateLog(`Found unique schedule (Score: ${convertScoreToPercentage(result.score).toFixed(0)}%). Total: ${topVariants.length}`);
+                    updateLog(`Found unique schedule (Score: ${convertScoreToPercentage(result.penalty).toFixed(0)}%). Total: ${topVariants.length}`);
                 }
                 
-                dom.loadingProgress.textContent = `Attempt ${totalAttempts}/${MAX_OVERALL_ATTEMPTS_FOR_UNIQUE_VARIANTS}...`;
+                dom.loadingProgress.textContent = `Attempt ${totalAttempts}/${MAX_ATTEMPTS}...`;
                 const { doctorShiftCounts } = getScheduleMetrics(result.schedule);
                 dom.currentShiftsSummary.textContent = `Shifts: ` + Object.entries(doctorShiftCounts).map(([id, c]) => `${DOCTORS_DATA[id].name.charAt(4)}:${c}`).join(' ');
                 renderMiniCalendar(result.schedule);
                 dom.uniqueVariantsSummary.textContent = `Unique Variants Found: ${topVariants.length} / ${NUM_UNIQUE_SCHEDULES_TO_FIND}`;
                 if (topVariants.length > 0) {
-                    const avgDisplayScore = topVariants.reduce((sum, v) => sum + convertScoreToPercentage(v.score), 0) / topVariants.length;
+                    const avgDisplayScore = topVariants.reduce((sum, v) => sum + convertScoreToPercentage(v.penalty), 0) / topVariants.length;
                     dom.avgScoreSummary.textContent = `Average Score: ${avgDisplayScore.toFixed(0)}%`;
-                    dom.highestScoreSummary.textContent = `Highest Score: ${convertScoreToPercentage(topVariants[0].score).toFixed(0)}%`;
+                    dom.highestScoreSummary.textContent = `Highest Score: ${convertScoreToPercentage(topVariants[0].penalty).toFixed(0)}%`;
                 }
                 const avgTime = totalGenerationTime / totalAttempts;
                 dom.avgTimeSummary.textContent = `Average Generation Time: ${avgTime.toFixed(1)} ms`;
@@ -706,16 +742,24 @@
                 await new Promise(r => setTimeout(r, 0));
             }
 
-            if (!isGenerationCancelled && topVariants.length > 0) {
-                dom.loadingTitle.textContent = "Phase 3: Performing deep optimization on all found variants...";
-                updateLog(`Phase 3: Starting deep optimization...`);
+            if (topVariants.length > 0) {
+                const wasCancelled = isGenerationCancelled;
+                dom.loadingTitle.textContent = "Phase 3: Performing deep optimization...";
+                dom.stopGenerationBtn.textContent = 'Stop Optimization';
+                updateLog(wasCancelled ? `Generation stopped. Running final optimization on ${topVariants.length} found variants...` : `Phase 3: Starting deep optimization...`);
+                isGenerationCancelled = false;
                 await new Promise(r => setTimeout(r, 100));
+                
                 for (let i = 0; i < topVariants.length; i++) {
-                    if (isGenerationCancelled) break;
+                    if (isGenerationCancelled) {
+                        updateLog('Optimization phase cancelled by user.');
+                        break;
+                    }
+                    
                     const variant = topVariants[i];
                     dom.loadingProgress.textContent = `Optimizing variant ${i + 1}/${topVariants.length}...`;
                     const polishedResult = await polishSchedule(variant.schedule, DEEP_OPTIMIZATION_ITERATIONS);
-                    if (polishedResult.score < variant.score) {
+                    if (isScoreBetter(polishedResult, variant)) {
                         const newHash = JSON.stringify(polishedResult.schedule);
                         if (!topVariants.some(v => v.hash === newHash)) {
                             topVariants[i] = { ...polishedResult, hash: newHash };
@@ -723,13 +767,16 @@
                     }
                     await new Promise(r => setTimeout(r, 0));
                 }
-                topVariants.sort((a, b) => a.score - b.score);
+                topVariants.sort((a, b) => {
+                    if (a.penalty !== b.penalty) return a.penalty - b.penalty;
+                    return b.bonus - a.bonus;
+                });
             }
 
             releaseWakeLock();
             dom.loadingOverlay.classList.add('hidden');
             dom.generateVariantsBtn.disabled = false;
-            updateLog(isGenerationCancelled ? `Stopped. Found ${topVariants.length} unique schedules.` : `Finished. Found ${topVariants.length} unique schedules.`);
+            updateLog(`Finished. Found ${topVariants.length} unique schedules.`);
 
             const controls = document.getElementById('variant-selection-controls');
             const radioContainer = controls.querySelector('.flex.flex-wrap.gap-4');
@@ -739,7 +786,7 @@
             if (topVariants.length > 0) {
                 topVariants.forEach((data, index) => {
                     const key = `variant${index + 1}`;
-                    radioContainer.innerHTML += `<label class="inline-flex items-center"><input type="radio" name="scheduleVariant" value="${key}" ${index === 0 ? 'checked' : ''} class="form-radio text-sky-600"> <span class="ml-2">${key.replace('v', 'V ')} (Score: ${convertScoreToPercentage(data.score).toFixed(0)}%)</span></label>`;
+                    radioContainer.innerHTML += `<label class="inline-flex items-center"><input type="radio" name="scheduleVariant" value="${key}" ${index === 0 ? 'checked' : ''} class="form-radio text-sky-600"> <span class="ml-2">${key.replace('v', 'V ')} (Score: ${convertScoreToPercentage(data.penalty).toFixed(0)}%)</span></label>`;
                     ALL_GENERATED_VARIANTS[key] = data;
                 });
                 radioContainer.addEventListener('change', e => displayVariant(e.target.value));
@@ -772,7 +819,7 @@
         }
         
         function generatePrintableHTML(variantData) {
-            const { schedule, score, explanation } = variantData;
+            const { schedule, penalty, explanation } = variantData;
             const { doctorShiftCounts } = getScheduleMetrics(schedule);
             const monthName = new Date(currentYear, currentMonth).toLocaleString('en-US', { month: 'long' });
 
@@ -788,7 +835,7 @@
                 explanationHTML += `</ul>`;
             }
             if ((explanation.penalties.length <= 1 && explanation.bonuses.length === 0) || (!explanation.penalties && !explanation.bonuses)) {
-                explanationHTML += `<p>This schedule meets all special rules and preferences.</p>`;
+                explanationHTML += `<p>This schedule has no specific penalties or bonuses.</p>`;
             }
             explanationHTML += `</div>`;
 
@@ -809,7 +856,7 @@
                 </style></head><body>
                 <div class="print-header"><h1>Doctor Schedule</h1><p>${monthName} ${currentYear}</p></div>
                 <div class="summary-section">
-                    <div class="details-section"><h2>Variant Details</h2><p><strong>Variant:</strong> ${currentSelectedVariant.replace('variant', 'Variant ')}</p><p><strong>Score:</strong> ${convertScoreToPercentage(score).toFixed(0)}%</p>${explanationHTML}</div>
+                    <div class="details-section"><h2>Variant Details</h2><p><strong>Variant:</strong> ${currentSelectedVariant.replace('variant', 'Variant ')}</p><p><strong>Score:</strong> ${convertScoreToPercentage(penalty).toFixed(0)}%</p>${explanationHTML}</div>
                     <table class="summary-table"><thead><tr><th colspan="2">Shift Summary</th></tr><tr><th>Doctor</th><th>Shifts</th></tr></thead><tbody>`;
             Object.entries(doctorShiftCounts).forEach(([docId, count]) => { html += `<tr><td>${DOCTORS_DATA[docId].name}</td><td>${count}</td></tr>`; });
             html += `</tbody></table></div><table class="calendar-grid"><thead><tr>`;
@@ -865,7 +912,7 @@
             renderCalendar();
             createFinalChart();
             dom.logContent.innerHTML = '';
-            updateLog(`Displaying: ${variantId.replace('variant', 'Variant ')} (Score: ${convertScoreToPercentage(data.score).toFixed(0)}%)`);
+            updateLog(`Displaying: ${variantId.replace('variant', 'Variant ')} (Score: ${convertScoreToPercentage(data.penalty).toFixed(0)}%)`);
         }
     </script>
 </body>
