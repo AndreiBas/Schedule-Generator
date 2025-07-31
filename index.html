@@ -153,21 +153,30 @@
         const DEEP_OPTIMIZATION_ITERATIONS = 2000;
 
         // --- INITIAL STATE & DATA ---
+        const date = new Date();
+        
         document.addEventListener('DOMContentLoaded', () => {
+            // --- MODIFICATION: Set the input values to the current date on load ---
+            dom.yearInput.value = currentYear;
+            dom.monthInput.value = currentMonth + 1; // +1 because month is 0-indexed, input is 1-indexed
+
             updateLog("Application initialized.");
             init();
         });
 
+        // --- MODIFICATION: New DOCTORS_DATA object as requested ---
         let DOCTORS_DATA = { 
-            'A': { name: 'Dr. M', color: 'bg-fuchsia-200', textColor: 'text-fuchsia-900', printBgColor: '#f5d0fe', printTextColor: '#701a75', min: 11, max: 13, daysOff: {}, daysOn: {}, prefersDoubleShifts: true, avoidsDoubleShifts: false, hasMidMonthPreference: false },
-            'B': { name: 'Dr. J', color: 'bg-green-200', textColor: 'text-green-900', printBgColor: '#bbf7d0', printTextColor: '#14532d', min: 11, max: 13, daysOff: {}, daysOn: {}, prefersDoubleShifts: true, avoidsDoubleShifts: false, hasMidMonthPreference: false },
-            'C': { name: 'Dr. B', color: 'bg-pink-200', textColor: 'text-pink-900', printBgColor: '#fbcfe8', printTextColor: '#831843', min: 12, max: 12, daysOff: {}, daysOn: {}, prefersDoubleShifts: true, avoidsDoubleShifts: false, hasMidMonthPreference: false },
-            'D': { name: 'Dr. H', color: 'bg-orange-200', textColor: 'text-orange-900', printBgColor: '#fed7aa', printTextColor: '#7c2d12', min: 6, max: 6, daysOff: {}, daysOn: {}, prefersDoubleShifts: false, avoidsDoubleShifts: true, hasMidMonthPreference: true },
-            'E': { name: 'Dr. L', color: 'bg-yellow-200', textColor: 'text-yellow-900', printBgColor: '#fef08a', printTextColor: '#713f12', min: 6, max: 6, daysOff: {}, daysOn: {}, prefersDoubleShifts: false, avoidsDoubleShifts: true, hasMidMonthPreference: true }
+            'A': { name: 'Dr. M', color: 'bg-fuchsia-200', textColor: 'text-fuchsia-900', printBgColor: '#f5d0fe', printTextColor: '#701a75', min: 11, max: 12, daysOff: {}, daysOn: {}, prefersDoubleShifts: true, avoidsDoubleShifts: false, hasMidMonthPreference: false },
+            'B': { name: 'Dr. J', color: 'bg-green-200', textColor: 'text-green-900', printBgColor: '#bbf7d0', printTextColor: '#14532d', min: 11, max: 12, daysOff: {}, daysOn: {}, prefersDoubleShifts: true, avoidsDoubleShifts: false, hasMidMonthPreference: false },
+            'C': { name: 'Dr. B', color: 'bg-pink-200', textColor: 'text-pink-900', printBgColor: '#fbcfe8', printTextColor: '#831843', min: 11, max: 12, daysOff: {}, daysOn: {}, prefersDoubleShifts: true, avoidsDoubleShifts: false, hasMidMonthPreference: false },
+            'D': { name: 'Dr. H', color: 'bg-orange-200', textColor: 'text-orange-900', printBgColor: '#fed7aa', printTextColor: '#7c2d12', min: 5, max: 6, daysOff: {}, daysOn: {}, prefersDoubleShifts: false, avoidsDoubleShifts: true, hasMidMonthPreference: true },
+            'E': { name: 'Dr. L', color: 'bg-yellow-200', textColor: 'text-yellow-900', printBgColor: '#fef08a', printTextColor: '#713f12', min: 5, max: 6, daysOff: {}, daysOn: {}, prefersDoubleShifts: false, avoidsDoubleShifts: true, hasMidMonthPreference: true }
         };
 
-        let currentYear = 2025;
-        let currentMonth = 7;
+        // --- MODIFICATION: Default year and month are now dynamic ---
+        let currentYear = date.getFullYear();
+        let currentMonth = date.getMonth(); // 0-indexed (0 = January)
+
         let state = { schedule: {}, log: [] };
         let ALL_GENERATED_VARIANTS = {}; 
         let currentSelectedVariant = 'variant1';
@@ -243,7 +252,6 @@
             instance.selectedDates.forEach(date => {
                 const dateString = date.toISOString().split('T')[0];
                 let defaultValue = 'all';
-                // If it's a Saturday, it can only be 'all'
                 if (new Date(dateString).getUTCDay() === 6) {
                     defaultValue = 'all';
                 }
@@ -266,11 +274,11 @@
                 const dayOfWeek = new Date(date).getUTCDay();
 
                 let radioHTML;
-                if (dayOfWeek === 6) { // Saturday
+                if (dayOfWeek === 6) { 
                     radioHTML = `
                         <input type="radio" id="${type}-${docId}-${date}-all" name="${type}-${docId}-${date}" value="all" checked disabled><label for="${type}-${docId}-${date}-all">All Day (Sat)</label>
                     `;
-                } else { // Weekday
+                } else {
                     radioHTML = `
                         <input type="radio" id="${type}-${docId}-${date}-all" name="${type}-${docId}-${date}" value="all" ${shiftType === 'all' ? 'checked' : ''}><label for="${type}-${docId}-${date}-all">All</label>
                         <input type="radio" id="${type}-${docId}-${date}-morning" name="${type}-${docId}-${date}" value="morning" ${shiftType === 'morning' ? 'checked' : ''}><label for="${type}-${docId}-${date}-morn">M</label>
@@ -377,7 +385,6 @@
             if (identifiedHolidays.length > 0) updateLog(`Identified holidays: ${identifiedHolidays.join(', ')}`);
         }
         
-        // --- UI & UTILITY FUNCTIONS ---
         function updateLog(message) {
             const entry = document.createElement('p');
             entry.className = 'log-entry';
@@ -452,7 +459,6 @@
         async function requestWakeLock() { if ('wakeLock' in navigator) { try { wakeLock = await navigator.wakeLock.request('screen'); updateLog('Screen wake lock activated.'); } catch (err) { console.error(`${err.name}, ${err.message}`); } } }
         function releaseWakeLock() { if (wakeLock !== null) { wakeLock.release().then(() => { wakeLock = null; updateLog('Screen wake lock released.'); }); } }
 
-        // --- CORE SCHEDULING & SCORING LOGIC ---
         function getScheduleMetrics(schedule) {
             let doctorShifts = {}, satShifts = {};
             Object.keys(DOCTORS_DATA).forEach(id => { doctorShifts[id] = 0; satShifts[id] = 0; });
@@ -573,7 +579,6 @@
             return !(offType === 'all' || (offType && offType.toLowerCase() === shift.type.toLowerCase()));
         }
 
-        // --- MAIN GENERATION ALGORITHM (THREE-PHASE) ---
         async function generateScheduleIterative() {
             let currentSchedule = {};
             const allShifts = [];
@@ -799,7 +804,6 @@
             }
         }
         
-        // --- FINAL UI DISPLAY & ACTIONS ---
         function createFinalChart() {
             const ctx = document.getElementById('final-chart').getContext('2d');
             const { doctorShiftCounts } = getScheduleMetrics(state.schedule);
