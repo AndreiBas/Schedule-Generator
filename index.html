@@ -51,7 +51,7 @@
                         </div>
                         <div>
                             <label for="num-unique-schedules-to-find-input" class="block text-sm font-medium text-slate-700">Unique Schedules to Find</label>
-                            <input type="number" id="num-unique-schedules-to-find-input" value="25" min="1" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-sky-500 focus:ring-sky-500 sm:text-sm p-2">
+                            <input type="number" id="num-unique-schedules-to-find-input" value="50" min="1" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-sky-500 focus:ring-sky-500 sm:text-sm p-2">
                         </div>
                         <div class="md:col-start-1">
                             <label for="max-attempts-input" class="block text-sm font-medium text-slate-700">Max Generation Attempts</label>
@@ -64,7 +64,7 @@
                     </div>
 
                     <div class="mt-6 mb-4 flex items-center">
-                        <input type="checkbox" id="prioritize-double-shifts" class="mr-2 rounded border-gray-300 text-sky-600 shadow-sm focus:border-sky-500 focus:ring-sky-500">
+                        <input type="checkbox" id="prioritize-double-shifts" class="mr-2 rounded border-gray-300 text-sky-600 shadow-sm focus:border-sky-500 focus:ring-sky-500" checked>
                         <label for="prioritize-double-shifts" class="text-sm font-medium text-slate-700">Enable Special Rules (e.g., Double Shift Preference/Avoidance)</label>
                     </div>
 
@@ -207,7 +207,7 @@
         };
         
         let enableSpecialRules = true; 
-        let NUM_UNIQUE_SCHEDULES_TO_FIND = 25;
+        let NUM_UNIQUE_SCHEDULES_TO_FIND = 50; // MODIFIED
         let MAX_ATTEMPTS = 10000;
         let flatpickrInstances = {};
 
@@ -330,9 +330,9 @@
                     const params = JSON.parse(e.target.result);
                     dom.monthInput.value = params.month; 
                     dom.yearInput.value = params.year;
-                    dom.numUniqueSchedulesToFindInput.value = params.numUniqueSchedulesToFind || 25;
+                    dom.numUniqueSchedulesToFindInput.value = params.numUniqueSchedulesToFind || 50; // MODIFIED
                     dom.maxAttemptsInput.value = params.maxAttempts || 10000;
-                    dom.prioritizeDoubleShiftsCheckbox.checked = params.enableSpecialRules || false;
+                    dom.prioritizeDoubleShiftsCheckbox.checked = params.enableSpecialRules === false ? false : true; // MODIFIED
                     Object.keys(DOCTORS_DATA).forEach(id => {
                         if (params.doctors[id]) {
                             DOCTORS_DATA[id].min = parseInt(params.doctors[id].min);
