@@ -16,14 +16,13 @@
         .log-entry { animation: fadeIn 0.5s ease-in-out; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
         .loading-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(255, 255, 255, 0.9); display: flex; justify-content: center; align-items: center; z-index: 1000; flex-direction: column; gap: 1rem; }
-        .spinner { border: 4px solid rgba(0, 0, 0, 0.1); border-left-color: #0ea5e9; border-radius: 50%; w-full: 50px; height: 50px; animation: spin 1s linear infinite; }
+        .spinner { border: 4px solid rgba(0, 0, 0, 0.1); border-left-color: #0ea5e9; border-radius: 50%; width: 50px; height: 50px; animation: spin 1s linear infinite; }
         @keyframes spin { to { transform: rotate(360deg); } }
         .text-xxs { font-size: 0.6rem; line-height: 0.75rem; }
         .day-request-detail { font-size: 0.75rem; display: flex; align-items: center; justify-content: space-between; gap: 4px; padding: 2px 4px; background-color: rgba(0,0,0,0.05); border-radius: 4px; margin-top: 4px; }
         .day-request-detail label { margin-left: 2px; margin-right: 6px; }
         .remove-day-request { cursor: pointer; color: #ef4444; font-weight: bold; padding: 0 4px; }
         .holiday-cell { background-color: #cffafe !important; }
-        /* --- MODIFICATION: Updated styles for new features --- */
         .availability-list { display: flex; flex-wrap: wrap; gap: 4px; min-height: 16px; align-items: center; }
         .availability-list span { cursor: grab; }
         .scheduled-shift { cursor: grab; }
@@ -34,9 +33,9 @@
             display: flex; 
             align-items: center; 
             justify-content: center; 
-            border-radius: 9999px; /* full rounded */
-            font-weight: 700; /* bold */
-            font-size: 0.6rem; /* text-xxs */
+            border-radius: 9999px;
+            font-weight: 700;
+            font-size: 0.6rem;
             line-height: 1;
         }
     </style>
@@ -108,8 +107,8 @@
 
             <!-- Section 3: Final Output & Interactive View -->
             <section id="output-section" class="hidden">
-                 <h2 class="text-2xl font-semibold mb-4 border-b pb-2">3. Final Schedule & Analysis</h2>
-                 <div id="variant-selection-controls" class="mb-6 p-4 bg-white rounded-lg shadow">
+                 <h2 id="output-heading" class="text-2xl font-semibold mb-4 border-b pb-2">3. Calendar & Analysis</h2>
+                 <div id="variant-selection-controls" class="mb-6 p-4 bg-white rounded-lg shadow hidden">
                     <div class="flex flex-wrap items-center justify-between">
                         <div>
                             <p class="text-slate-700 mb-2 font-semibold">Select a schedule variant to view:</p>
@@ -123,8 +122,8 @@
                  </div>
 
                 <div class="lg:grid lg:grid-cols-12 lg:gap-8">
-                    <!-- Left Column: Statistics -->
-                    <div id="statistics-panel" class="lg:col-span-4 space-y-6">
+                    <!-- Left Column: Statistics (Hidden initially) -->
+                    <div id="statistics-panel" class="lg:col-span-4 space-y-6 hidden">
                          <div class="p-4 bg-white rounded-lg shadow">
                             <h3 class="font-bold text-lg mb-2">Live Schedule Statistics</h3>
                             <div id="stats-content"></div>
@@ -137,8 +136,8 @@
                             <div id="log-content" class="text-sm font-mono space-y-1"></div>
                         </div>
                     </div>
-                    <!-- Right Column: Calendar -->
-                    <div class="lg:col-span-8 mt-8 lg:mt-0">
+                    <!-- Right Column: Calendar (Full width initially) -->
+                    <div id="calendar-container-wrapper" class="lg:col-span-12 mt-8 lg:mt-0">
                         <div id="calendar-view" class="bg-white p-4 rounded-lg shadow overflow-x-auto"></div>
                     </div>
                 </div>
@@ -224,7 +223,11 @@
             continueGenerationBtn: document.getElementById('continue-generation-btn'),
             calendarView: document.getElementById('calendar-view'),
             statsContent: document.getElementById('stats-content'),
-            variantRadios: document.getElementById('variant-radios')
+            variantRadios: document.getElementById('variant-radios'),
+            outputSection: document.getElementById('output-section'),
+            statisticsPanel: document.getElementById('statistics-panel'),
+            variantSelectionControls: document.getElementById('variant-selection-controls'),
+            calendarContainerWrapper: document.getElementById('calendar-container-wrapper')
         };
         
         let enableSpecialRules = true; 
@@ -371,6 +374,7 @@
             reader.readAsText(file);
         }
 
+        // --- MODIFICATION: Corrected Load Parameters Flow ---
         function loadInitialParameters() {
             currentMonth = parseInt(dom.monthInput.value) - 1;
             currentYear = parseInt(dom.yearInput.value);
@@ -383,15 +387,24 @@
             });
             identifyHolidays();
             resetUIForNewGeneration();
-            updateLog('Parameters applied. Ready to generate schedules.');
+            updateLog('Parameters applied. Calendar updated with Holidays.');
         }
 
         function resetUIForNewGeneration() {
             state = { schedule: {}, log: [] };
             dom.logContent.innerHTML = '';
-            dom.calendarView.innerHTML = '<p class="text-center text-slate-500">Generate a schedule to see the calendar view.</p>';
-            document.getElementById('output-section').classList.add('hidden');
+            
+            // Show the output section, but hide the parts we don't need yet
+            dom.outputSection.classList.remove('hidden');
+            dom.statisticsPanel.classList.add('hidden');
+            dom.variantSelectionControls.classList.add('hidden');
+            
+            // Make calendar full width initially
+            dom.calendarContainerWrapper.classList.remove('lg:col-span-8');
+            dom.calendarContainerWrapper.classList.add('lg:col-span-12');
+
             dom.generateVariantsBtn.disabled = false;
+            renderCalendar();
         }
 
         function identifyHolidays() {
@@ -566,7 +579,7 @@
                 return;
             }
             
-            // Fix: Use UTCDay for reliable day check
+            // Fix: Use UTCDay for reliable day check to avoid timezone issues
             const targetDayOfWeek = new Date(targetDate).getUTCDay();
             if (targetDayOfWeek === 0 || identifiedHolidays.includes(targetDate)) {
                  updateLog("Cannot adjust shifts on Sundays or Holidays.");
@@ -1024,7 +1037,12 @@
                 });
                 
                 displayVariant('variant1');
-                document.getElementById('output-section').classList.remove('hidden');
+                
+                // Show full analysis UI when generation completes
+                dom.statisticsPanel.classList.remove('hidden');
+                dom.variantSelectionControls.classList.remove('hidden');
+                dom.calendarContainerWrapper.classList.remove('lg:col-span-12');
+                dom.calendarContainerWrapper.classList.add('lg:col-span-8');
                 dom.continueGenerationBtn.classList.remove('hidden');
             } else {
                 updateLog("No valid schedules could be generated in the given time.");
@@ -1149,8 +1167,7 @@
                 printWindow.document.write(printableHTML);
                 printWindow.document.close();
                 
-                // Add a small delay for print command, which is often required 
-                // for dynamically generated content, especially when it has a score of Infinity.
+                // Add a slight delay using onload/setTimeout for robust printing on all variants
                 printWindow.onload = function() {
                      printWindow.focus();
                      printWindow.print();
