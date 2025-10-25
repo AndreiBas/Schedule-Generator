@@ -12,17 +12,33 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
     <style>
         body { font-family: 'Inter', sans-serif; background-color: #f8fafc; }
-        .chart-container { position: relative; width: 100%; max-width: 800px; margin-left: auto; margin-right: auto; height: 400px; max-height: 50vh; }
+        .chart-container { position: relative; width: 100%; max-width: 800px; margin: 0 auto; height: 300px; }
         .log-entry { animation: fadeIn 0.5s ease-in-out; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
         .loading-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(255, 255, 255, 0.9); display: flex; justify-content: center; align-items: center; z-index: 1000; flex-direction: column; gap: 1rem; }
-        .spinner { border: 4px solid rgba(0, 0, 0, 0.1); border-left-color: #0ea5e9; border-radius: 50%; width: 50px; height: 50px; animation: spin 1s linear infinite; }
+        .spinner { border: 4px solid rgba(0, 0, 0, 0.1); border-left-color: #0ea5e9; border-radius: 50%; w-full: 50px; height: 50px; animation: spin 1s linear infinite; }
         @keyframes spin { to { transform: rotate(360deg); } }
         .text-xxs { font-size: 0.6rem; line-height: 0.75rem; }
         .day-request-detail { font-size: 0.75rem; display: flex; align-items: center; justify-content: space-between; gap: 4px; padding: 2px 4px; background-color: rgba(0,0,0,0.05); border-radius: 4px; margin-top: 4px; }
         .day-request-detail label { margin-left: 2px; margin-right: 6px; }
         .remove-day-request { cursor: pointer; color: #ef4444; font-weight: bold; padding: 0 4px; }
-        .holiday-cell { background-color: #cffafe !important; /* cyan-100 */ }
+        .holiday-cell { background-color: #cffafe !important; }
+        /* --- MODIFICATION: Updated styles for new features --- */
+        .availability-list { display: flex; flex-wrap: wrap; gap: 4px; min-height: 16px; align-items: center; }
+        .availability-list span { cursor: grab; }
+        .scheduled-shift { cursor: grab; }
+        .drag-over { border: 2px dashed #0ea5e9; box-sizing: border-box; }
+        .initial-pill {
+            height: 16px; 
+            width: 16px; 
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+            border-radius: 9999px; /* full rounded */
+            font-weight: 700; /* bold */
+            font-size: 0.6rem; /* text-xxs */
+            line-height: 1;
+        }
     </style>
 </head>
 <body class="text-slate-800">
@@ -36,7 +52,7 @@
         <main class="space-y-12">
             <!-- Section 1: Inputs -->
             <section id="inputs-section">
-                <h2 class="text-2xl font-semibold mb-4 border-b pb-2">1. Initial Parameters</h2>
+                 <h2 class="text-2xl font-semibold mb-4 border-b pb-2">1. Initial Parameters</h2>
                 <div class="p-4 bg-white rounded-lg shadow">
                     <p class="text-slate-600 mb-6">Define the month and year for the schedule, and customize each doctor's parameters. For "Days Off/On", select dates in the calendar, then specify if the request is for the full day, morning, or afternoon.</p>
                     
@@ -81,45 +97,51 @@
                     </div>
                 </div>
             </section>
-
-            <!-- Section 2: Algorithm Visualization -->
-            <section id="algorithm-section">
+            
+            <!-- Section 2: Generation Trigger -->
+            <section id="generation-section">
                 <h2 class="text-2xl font-semibold mb-4 border-b pb-2">2. Generate Schedules</h2>
                 <div class="flex justify-center mb-8">
                     <button id="generate-variants-btn" class="bg-sky-600 text-white font-bold py-3 px-8 rounded-lg shadow-md hover:bg-sky-700 transition-all transform hover:scale-105">Generate All Variants</button>
                 </div>
-                <div class="lg:grid lg:grid-cols-3 lg:gap-8">
-                    <div class="lg:col-span-1 space-y-4">
-                        <div class="p-4 bg-white rounded-lg shadow">
-                            <h3 class="font-bold text-lg">Algorithm Process</h3>
-                            <p class="text-slate-600 text-sm">The scheduling algorithm proceeds in steps: first, it initializes a blank schedule. Then, it applies hard constraints like "Days On" and "Days Off." Finally, it fills the remaining shifts using an iterative approach that balances workload and applies specific variant-dependent priorities.</p>
+            </section>
+
+            <!-- Section 3: Final Output & Interactive View -->
+            <section id="output-section" class="hidden">
+                 <h2 class="text-2xl font-semibold mb-4 border-b pb-2">3. Final Schedule & Analysis</h2>
+                 <div id="variant-selection-controls" class="mb-6 p-4 bg-white rounded-lg shadow">
+                    <div class="flex flex-wrap items-center justify-between">
+                        <div>
+                            <p class="text-slate-700 mb-2 font-semibold">Select a schedule variant to view:</p>
+                            <div id="variant-radios" class="flex flex-wrap gap-4"></div>
                         </div>
-                        <div class="p-4 bg-gray-800 text-white rounded-lg shadow h-48 overflow-y-auto">
+                        <div class="mt-4 sm:mt-0">
+                             <button id="continue-generation-btn" class="bg-sky-600 text-white font-bold py-2 px-6 rounded-lg shadow-md hover:bg-sky-700 transition-all transform hover:scale-105 hidden">Continue Generation</button>
+                             <button id="save-current-variant-btn" class="bg-indigo-600 text-white font-bold py-2 px-6 rounded-lg shadow-md hover:bg-indigo-700 transition-all transform hover:scale-105">Print/Save Current Variant</button>
+                        </div>
+                    </div>
+                 </div>
+
+                <div class="lg:grid lg:grid-cols-12 lg:gap-8">
+                    <!-- Left Column: Statistics -->
+                    <div id="statistics-panel" class="lg:col-span-4 space-y-6">
+                         <div class="p-4 bg-white rounded-lg shadow">
+                            <h3 class="font-bold text-lg mb-2">Live Schedule Statistics</h3>
+                            <div id="stats-content"></div>
+                         </div>
+                         <div class="p-4 bg-white rounded-lg shadow">
+                            <div class="chart-container"><canvas id="final-chart"></canvas></div>
+                         </div>
+                         <div class="p-4 bg-gray-800 text-white rounded-lg shadow h-48 overflow-y-auto">
                             <h3 class="font-bold text-lg mb-2">Algorithm Log</h3>
                             <div id="log-content" class="text-sm font-mono space-y-1"></div>
                         </div>
                     </div>
-                    <div class="lg:col-span-2 mt-8 lg:mt-0">
+                    <!-- Right Column: Calendar -->
+                    <div class="lg:col-span-8 mt-8 lg:mt-0">
                         <div id="calendar-view" class="bg-white p-4 rounded-lg shadow overflow-x-auto"></div>
                     </div>
                 </div>
-            </section>
-
-            <!-- Section 3: Final Output -->
-            <section id="output-section" class="hidden">
-                 <h2 class="text-2xl font-semibold mb-4 border-b pb-2">3. Final Schedule & Analysis</h2>
-                 <div id="variant-selection-controls" class="mb-6 hidden">
-                    <p class="text-slate-700 mb-2">Select a schedule variant to view:</p>
-                    <div class="flex flex-wrap gap-4"></div>
-                 </div>
-                 <div class="p-4 bg-white rounded-lg shadow">
-                    <p class="text-slate-600 mb-6">The algorithm has completed. The chart below shows the final shift distribution for each doctor, helping to quickly verify if the schedule is balanced and meets all core requirements.</p>
-                    <div class="chart-container"><canvas id="final-chart"></canvas></div>
-                    <div class="flex justify-center items-center gap-4 mt-6">
-                        <button id="save-current-variant-btn" class="bg-indigo-600 text-white font-bold py-2 px-6 rounded-lg shadow-md hover:bg-indigo-700 transition-all transform hover:scale-105">Print/Save Current Variant</button>
-                        <button id="continue-generation-btn" class="bg-sky-600 text-white font-bold py-2 px-6 rounded-lg shadow-md hover:bg-sky-700 transition-all transform hover:scale-105 hidden">Continue Generation</button>
-                    </div>
-                 </div>
             </section>
         </main>
     </div>
@@ -156,15 +178,12 @@
         const date = new Date();
         
         document.addEventListener('DOMContentLoaded', () => {
-            // --- MODIFICATION: Set the input values to the current date on load ---
             dom.yearInput.value = currentYear;
-            dom.monthInput.value = currentMonth + 1; // +1 because month is 0-indexed, input is 1-indexed
-
+            dom.monthInput.value = currentMonth + 1;
             updateLog("Application initialized.");
             init();
         });
 
-        // --- MODIFICATION: New DOCTORS_DATA object as requested ---
         let DOCTORS_DATA = { 
             'A': { name: 'Dr. M', color: 'bg-fuchsia-200', textColor: 'text-fuchsia-900', printBgColor: '#f5d0fe', printTextColor: '#701a75', min: 11, max: 12, daysOff: {}, daysOn: {}, prefersDoubleShifts: true, avoidsDoubleShifts: false, hasMidMonthPreference: false },
             'B': { name: 'Dr. J', color: 'bg-green-200', textColor: 'text-green-900', printBgColor: '#bbf7d0', printTextColor: '#14532d', min: 11, max: 12, daysOff: {}, daysOn: {}, prefersDoubleShifts: true, avoidsDoubleShifts: false, hasMidMonthPreference: false },
@@ -173,9 +192,8 @@
             'E': { name: 'Dr. L', color: 'bg-yellow-200', textColor: 'text-yellow-900', printBgColor: '#fef08a', printTextColor: '#713f12', min: 5, max: 6, daysOff: {}, daysOn: {}, prefersDoubleShifts: false, avoidsDoubleShifts: true, hasMidMonthPreference: true }
         };
 
-        // --- MODIFICATION: Default year and month are now dynamic ---
         let currentYear = date.getFullYear();
-        let currentMonth = date.getMonth(); // 0-indexed (0 = January)
+        let currentMonth = date.getMonth(); 
 
         let state = { schedule: {}, log: [] };
         let ALL_GENERATED_VARIANTS = {}; 
@@ -203,15 +221,17 @@
             saveCurrentVariantBtn: document.getElementById('save-current-variant-btn'), uniqueVariantsSummary: document.getElementById('unique-variants-summary'),
             avgScoreSummary: document.getElementById('avg-score-summary'), highestScoreSummary: document.getElementById('highest-score-summary'),
             avgTimeSummary: document.getElementById('avg-time-summary'), elapsedTimeSummary: document.getElementById('elapsed-time-summary'),
-            continueGenerationBtn: document.getElementById('continue-generation-btn')
+            continueGenerationBtn: document.getElementById('continue-generation-btn'),
+            calendarView: document.getElementById('calendar-view'),
+            statsContent: document.getElementById('stats-content'),
+            variantRadios: document.getElementById('variant-radios')
         };
         
         let enableSpecialRules = true; 
-        let NUM_UNIQUE_SCHEDULES_TO_FIND = 50; // MODIFIED
+        let NUM_UNIQUE_SCHEDULES_TO_FIND = 50;
         let MAX_ATTEMPTS = 10000;
         let flatpickrInstances = {};
 
-        // --- INITIALIZATION AND PARAMETER HANDLING ---
         function init() {
             renderDoctorInputCards(); 
             dom.loadParamsBtn.addEventListener('click', loadInitialParameters);
@@ -222,6 +242,11 @@
             dom.continueGenerationBtn.addEventListener('click', () => generateAllVariants(true));
             dom.saveCurrentVariantBtn.addEventListener('click', saveCurrentVariant);
             dom.stopGenerationBtn.addEventListener('click', () => { isGenerationCancelled = true; updateLog("Generation process cancelled by user..."); });
+            dom.calendarView.addEventListener('dragstart', handleDragStart);
+            dom.calendarView.addEventListener('dragover', handleDragOver);
+            dom.calendarView.addEventListener('dragleave', handleDragLeave);
+            dom.calendarView.addEventListener('drop', handleDrop);
+            dom.variantRadios.addEventListener('change', e => displayVariant(e.target.value));
         }
 
         function parseDates(dateString) { return (dateString || '').split(',').map(s => s.trim()).filter(Boolean); }
@@ -275,9 +300,7 @@
 
                 let radioHTML;
                 if (dayOfWeek === 6) { 
-                    radioHTML = `
-                        <input type="radio" id="${type}-${docId}-${date}-all" name="${type}-${docId}-${date}" value="all" checked disabled><label for="${type}-${docId}-${date}-all">All Day (Sat)</label>
-                    `;
+                    radioHTML = `<input type="radio" id="${type}-${docId}-${date}-all" name="${type}-${docId}-${date}" value="all" checked disabled><label for="${type}-${docId}-${date}-all">All Day (Sat)</label>`;
                 } else {
                     radioHTML = `
                         <input type="radio" id="${type}-${docId}-${date}-all" name="${type}-${docId}-${date}" value="all" ${shiftType === 'all' ? 'checked' : ''}><label for="${type}-${docId}-${date}-all">All</label>
@@ -330,9 +353,9 @@
                     const params = JSON.parse(e.target.result);
                     dom.monthInput.value = params.month; 
                     dom.yearInput.value = params.year;
-                    dom.numUniqueSchedulesToFindInput.value = params.numUniqueSchedulesToFind || 50; // MODIFIED
+                    dom.numUniqueSchedulesToFindInput.value = params.numUniqueSchedulesToFind || 50;
                     dom.maxAttemptsInput.value = params.maxAttempts || 10000;
-                    dom.prioritizeDoubleShiftsCheckbox.checked = params.enableSpecialRules === false ? false : true; // MODIFIED
+                    dom.prioritizeDoubleShiftsCheckbox.checked = params.enableSpecialRules === false ? false : true;
                     Object.keys(DOCTORS_DATA).forEach(id => {
                         if (params.doctors[id]) {
                             DOCTORS_DATA[id].min = parseInt(params.doctors[id].min);
@@ -366,9 +389,8 @@
         function resetUIForNewGeneration() {
             state = { schedule: {}, log: [] };
             dom.logContent.innerHTML = '';
-            renderCalendar();
+            dom.calendarView.innerHTML = '<p class="text-center text-slate-500">Generate a schedule to see the calendar view.</p>';
             document.getElementById('output-section').classList.add('hidden');
-            document.getElementById('variant-selection-controls').classList.add('hidden');
             dom.generateVariantsBtn.disabled = false;
         }
 
@@ -393,36 +415,232 @@
             if (dom.logContent.children.length > 20) dom.logContent.removeChild(dom.logContent.lastChild);
         }
 
+        function renderStatistics() {
+            const { doctorShiftCounts } = getScheduleMetrics(state.schedule);
+            const score = calculateScheduleBadness(state.schedule);
+
+            let statsHTML = `<div class="mb-4"><strong>Score:</strong> <span class="font-mono p-1 rounded ${score.penalty === Infinity ? 'bg-red-300 text-red-900' : (score.penalty > 0 ? 'bg-amber-100 text-amber-800' : 'bg-green-100 text-green-800')}">${score.penalty === Infinity ? 'HARD VIOLATION (0%)' : convertScoreToPercentage(score.penalty).toFixed(0) + '%'}</span></div>
+                             <table class="w-full text-sm"><thead><tr class="border-b"><th class="text-left pb-1">Doctor</th><th class="text-center pb-1">Shifts</th><th class="text-center pb-1">Range</th></tr></thead><tbody>`;
+            
+            Object.entries(doctorShiftCounts).forEach(([docId, count]) => {
+                const doc = DOCTORS_DATA[docId];
+                let countClass = '';
+                if (count < doc.min || count > doc.max) countClass = 'font-bold text-red-600';
+                else if (count === doc.min || count === doc.max) countClass = 'font-semibold text-amber-600';
+
+                statsHTML += `<tr class="border-b border-slate-100">
+                                <td class="py-1.5">${doc.name}</td>
+                                <td class="text-center ${countClass}">${count}</td>
+                                <td class="text-center text-slate-500">${doc.min}-${doc.max}</td>
+                              </tr>`;
+            });
+            statsHTML += '</tbody></table>';
+            dom.statsContent.innerHTML = statsHTML;
+            createFinalChart();
+        }
+
         function renderCalendar() {
-            const calendarView = document.getElementById('calendar-view');
             const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
             const firstDayOfMonth = new Date(currentYear, currentMonth, 1).getDay();
             let html = `<table class="w-full border-collapse"><thead><tr class="bg-slate-100">`;
             ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].forEach(day => html += `<th class="p-2 border text-sm">${day}</th>`);
             html += `</tr></thead><tbody><tr>`;
-            for (let i = 0; i < firstDayOfMonth; i++) html += `<td class="border p-1 h-24 sm:h-28 bg-slate-50"></td>`;
+            for (let i = 0; i < firstDayOfMonth; i++) html += `<td class="border p-1 h-28 bg-slate-50"></td>`;
+
+            const allDoctorIds = Object.keys(DOCTORS_DATA);
             for (let day = 1; day <= daysInMonth; day++) {
-                const dateString = new Date(currentYear, currentMonth, day).toISOString().split('T')[0];
-                const dayOfWeek = new Date(currentYear, currentMonth, day).getDay();
+                const date = new Date(currentYear, currentMonth, day);
+                const dateString = date.toISOString().split('T')[0];
+                const dayOfWeek = date.getUTCDay(); // Use UTCDay for reliable day check independent of timezone
                 if (dayOfWeek === 0 && day !== 1) html += `</tr><tr>`;
                 const isHoliday = identifiedHolidays.includes(dateString);
                 let cellClass = dayOfWeek === 0 ? 'bg-slate-200' : 'bg-white';
                 if (isHoliday) cellClass = 'holiday-cell';
-                html += `<td class="border p-0.5 sm:p-1 h-24 sm:h-28 align-top ${cellClass}"><div class="font-bold text-sm">${day}</div>`;
-                if(isHoliday) html += `<div class="text-xs font-semibold text-cyan-700 mt-1">Holiday</div>`;
+                html += `<td class="border p-1 h-28 align-top ${cellClass}"><div class="flex justify-between items-start"><div class="font-bold text-sm">${day}</div></div>`;
+                
+                // --- MORNING / SATURDAY Availability List (Top/Center) ---
+                html += `<div class="availability-list mt-1">`;
+                let shiftsForAvailability = [];
+                if (dayOfWeek < 6 && dayOfWeek !== 0 && !isHoliday) { // Mon - Fri
+                    shiftsForAvailability.push('morning');
+                } else if (dayOfWeek === 6 && !isHoliday) { // Saturday
+                    shiftsForAvailability.push('saturday');
+                }
+
+                if (shiftsForAvailability.length > 0) {
+                    const shiftType = shiftsForAvailability[0]; 
+                    const availableDoctors = allDoctorIds.filter(id => isDoctorAvailableForShift(id, {date: dateString, type: shiftType}));
+                    availableDoctors.forEach(id => {
+                        const doc = DOCTORS_DATA[id];
+                        const initial = doc.name.slice(-1);
+                        html += `<span draggable="true" data-doc-id="${id}" title="${doc.name} (Eligible for ${shiftType})" class="initial-pill ${doc.color} ${doc.textColor}">${initial}</span>`;
+                    });
+                }
+                html += `</div>`;
+                
+                if (isHoliday) html += `<div class="text-xs font-semibold text-cyan-700 mt-1">Holiday</div>`;
+                
+                // --- SCHEDULED SHIFTS ---
                 if (state.schedule[dateString]) {
+                    html += `<div class="space-y-1 my-1">`;
                     Object.entries(state.schedule[dateString]).forEach(([shiftType, doctorId]) => {
                         const doctor = doctorId ? DOCTORS_DATA[doctorId] : null;
                         const shiftName = shiftType.charAt(0).toUpperCase() + shiftType.slice(1);
-                        html += `<div class="mt-1 p-1 rounded text-xxs sm:text-xs font-semibold ${doctor ? doctor.color : 'bg-gray-100'} ${doctor ? doctor.textColor : 'text-gray-500'}">${shiftName}: ${doctor ? doctor.name : '___'}</div>`;
+                        html += `<div draggable="true" data-date="${dateString}" data-shift-type="${shiftType}" data-doc-id="${doctorId || ''}" class="scheduled-shift p-1 rounded text-xxs sm:text-xs font-semibold ${doctor ? doctor.color : 'bg-gray-100'} ${doctor ? doctor.textColor : 'text-gray-500'}">${shiftName}: ${doctor ? doctor.name : '___'}</div>`;
+                    });
+                    html += `</div>`;
+                }
+                
+                // --- AFTERNOON Availability List (Bottom) ---
+                html += `<div class="availability-list mt-auto">`;
+                if (dayOfWeek < 6 && dayOfWeek !== 0 && !isHoliday) { // Mon - Fri only for afternoon
+                    const availableAfternoon = allDoctorIds.filter(id => isDoctorAvailableForShift(id, {date: dateString, type: 'afternoon'}));
+                    availableAfternoon.forEach(id => {
+                        const doc = DOCTORS_DATA[id];
+                        const initial = doc.name.slice(-1);
+                        html += `<span draggable="true" data-doc-id="${id}" title="${doc.name} (Eligible for afternoon)" class="initial-pill ${doc.color} ${doc.textColor}">${initial}</span>`;
                     });
                 }
+                html += `</div>`;
+                
                 html += `</td>`;
             }
             const lastDay = new Date(currentYear, currentMonth + 1, 0).getDay();
-            for(let i = lastDay; i < 6; i++) html += `<td class="border p-1 h-24 sm:h-28 bg-slate-50"></td>`;
+            for(let i = lastDay; i < 6; i++) html += `<td class="border p-1 h-28 bg-slate-50"></td>`;
             html += `</tr></tbody></table>`;
-            calendarView.innerHTML = html;
+            dom.calendarView.innerHTML = html;
+        }
+
+        let draggedItem = null;
+        function handleDragStart(e) {
+            draggedItem = e.target;
+            const isScheduledShift = draggedItem.classList.contains('scheduled-shift');
+            const isInitialPill = draggedItem.classList.contains('initial-pill');
+
+            if (!isScheduledShift && !isInitialPill) return;
+
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', JSON.stringify({
+                docId: draggedItem.dataset.docId,
+                sourceDate: draggedItem.dataset.date,
+                sourceShift: draggedItem.dataset.shiftType,
+                isInitialPill: isInitialPill
+            }));
+            setTimeout(() => { draggedItem.style.opacity = '0.5'; }, 0);
+        }
+
+        function handleDragOver(e) {
+            e.preventDefault();
+            const dropTarget = e.target.closest('.scheduled-shift');
+            if(dropTarget) {
+                dropTarget.classList.add('drag-over');
+            }
+        }
+        
+        function handleDragLeave(e) {
+             const dropTarget = e.target.closest('.scheduled-shift');
+            if(dropTarget) {
+                dropTarget.classList.remove('drag-over');
+            }
+        }
+
+        function handleDrop(e) {
+            e.preventDefault();
+            if (draggedItem) {
+                draggedItem.style.opacity = '1';
+            }
+            
+            const targetElement = e.target.closest('.scheduled-shift');
+            if (!targetElement) return;
+            
+            targetElement.classList.remove('drag-over');
+
+            const sourceData = JSON.parse(e.dataTransfer.getData('text/plain'));
+            const targetDate = targetElement.dataset.date;
+            const targetShift = targetElement.dataset.shiftType;
+            const targetDocId = targetElement.dataset.docId;
+            const sourceDocId = sourceData.docId;
+
+            if (!sourceDocId) {
+                updateLog("Cannot drag an empty shift.");
+                return;
+            }
+            
+            // Fix: Use UTCDay for reliable day check
+            const targetDayOfWeek = new Date(targetDate).getUTCDay();
+            if (targetDayOfWeek === 0 || identifiedHolidays.includes(targetDate)) {
+                 updateLog("Cannot adjust shifts on Sundays or Holidays.");
+                 return;
+            }
+
+            // 1. Check if the source doctor is available for the target shift
+            if (!isDoctorAvailableForShift(sourceDocId, { date: targetDate, type: targetShift })) {
+                updateLog(`Assignment failed: ${DOCTORS_DATA[sourceDocId].name} is not available for the ${targetShift} shift.`);
+                return;
+            }
+
+            // 2. Perform the swap/assignment
+            let actionSuccessful = false;
+            if (sourceData.sourceDate && sourceData.sourceShift) { 
+                // Case: Dragging a SCHEDULED doctor onto another SCHEDULED shift (SWAP or MOVE)
+                if (targetDocId && !isDoctorAvailableForShift(targetDocId, { date: sourceData.sourceDate, type: sourceData.sourceShift })) {
+                    updateLog(`Swap failed: ${DOCTORS_DATA[targetDocId].name} is not available for the original shift.`);
+                    return;
+                }
+                
+                state.schedule[sourceData.sourceDate][sourceData.sourceShift] = targetDocId || null;
+                state.schedule[targetDate][targetShift] = sourceDocId;
+                updateLog(`Swapped ${DOCTORS_DATA[sourceDocId].name} with ${targetDocId ? DOCTORS_DATA[targetDocId].name : 'an empty shift'}.`);
+                actionSuccessful = true;
+
+            } else { 
+                // Case: Dragging an AVAILABLE doctor (initial pill) onto a SCHEDULED shift (ASSIGNMENT)
+                state.schedule[targetDate][targetShift] = sourceDocId;
+                updateLog(`Assigned ${DOCTORS_DATA[sourceDocId].name} to ${targetShift} on ${targetDate}.`);
+                actionSuccessful = true;
+            }
+            
+            // 3. Post-Action Steps
+            if (actionSuccessful) {
+                trackCustomVariant();
+                renderCalendar();
+                renderStatistics();
+            }
+        }
+        
+        function trackCustomVariant() {
+            const customKey = 'variantCustom';
+            // Deep clone the current state.schedule to save the manual edits
+            const customScheduleClone = JSON.parse(JSON.stringify(state.schedule));
+            const currentScore = calculateScheduleBadness(customScheduleClone);
+            
+            ALL_GENERATED_VARIANTS[customKey] = {
+                ...currentScore,
+                schedule: customScheduleClone, // Save the actual schedule here
+                hash: JSON.stringify(customScheduleClone)
+            };
+            
+            const scoreText = currentScore.penalty === Infinity ? '0%' : convertScoreToPercentage(currentScore.penalty).toFixed(0) + '%';
+
+            // Check if the custom radio button already exists
+            let customRadio = dom.variantRadios.querySelector(`input[value="${customKey}"]`);
+            if (!customRadio) {
+                const newRadioLabel = document.createElement('label');
+                newRadioLabel.className = 'inline-flex items-center';
+                newRadioLabel.innerHTML = `<input type="radio" name="scheduleVariant" value="${customKey}" class="form-radio text-red-600"> <span class="ml-2">${customKey.replace('variant', 'V ')} (Custom) (Score: ${scoreText})</span>`;
+                dom.variantRadios.appendChild(newRadioLabel);
+            } else {
+                // If it exists, update the score display
+                const scoreSpan = customRadio.nextElementSibling;
+                scoreSpan.textContent = ` ${customKey.replace('variant', 'V ')} (Custom) (Score: ${scoreText})`;
+            }
+            
+            // Set the custom variant as currently selected in both the JS state and UI
+            const finalCustomRadio = dom.variantRadios.querySelector(`input[value="${customKey}"]`);
+            if (finalCustomRadio) {
+                finalCustomRadio.checked = true;
+                currentSelectedVariant = customKey;
+            }
         }
 
         function renderMiniCalendar(scheduleToDisplay) {
@@ -441,7 +659,7 @@
                 if (identifiedHolidays.includes(dateString)) cellClass = 'holiday-cell';
                 html += `<td class="border p-0.5 h-6 align-top text-xxs font-semibold ${cellClass}"><div class="text-xxs">${day}</div>`;
                 if (scheduleToDisplay[dateString]) {
-                    const docs = new Set(Object.values(scheduleToDisplay[dateString]).filter(Boolean).map(id => DOCTORS_DATA[id].name.charAt(4)));
+                    const docs = new Set(Object.values(scheduleToDisplay[dateString]).filter(Boolean).map(id => DOCTORS_DATA[id].name.slice(-1)));
                     if (docs.size > 0) html += `<div class="mt-0.5 text-xxs font-normal">${Array.from(docs).join(',')}</div>`;
                 }
                 html += `</td>`;
@@ -484,26 +702,32 @@
             const { doctorShiftCounts, saturdayShiftCounts } = getScheduleMetrics(schedule);
             
             for (const docId in DOCTORS_DATA) {
-                if (doctorShiftCounts[docId] < DOCTORS_DATA[docId].min || doctorShiftCounts[docId] > DOCTORS_DATA[docId].max) return { penalty: Infinity, bonus: 0 };
+                const docData = DOCTORS_DATA[docId];
+                const shiftCount = doctorShiftCounts[docId];
+                if (shiftCount < docData.min || shiftCount > docData.max) {
+                    return { penalty: Infinity, bonus: 0, explanation: { penalties: [`${docData.name} has ${shiftCount} shifts, outside range of ${docData.min}-${docData.max}.`] }};
+                }
 
-                for (const date in DOCTORS_DATA[docId].daysOff) {
-                    const offType = DOCTORS_DATA[docId].daysOff[date];
+                for (const date in docData.daysOff) {
+                    const offType = docData.daysOff[date];
                     if (schedule[date]) {
                         if (
                             (offType === 'all' && (schedule[date].morning === docId || schedule[date].afternoon === docId || schedule[date].saturday === docId)) ||
                             (offType === 'morning' && schedule[date].morning === docId) ||
                             (offType === 'afternoon' && schedule[date].afternoon === docId)
                         ) {
-                            return { penalty: Infinity, bonus: 0 };
+                            return { penalty: Infinity, bonus: 0, explanation: { penalties: [`${docData.name} scheduled on day off: ${date}`]} };
                         }
                     }
                 }
 
-                for (const date in DOCTORS_DATA[docId].daysOn) {
-                    const onType = DOCTORS_DATA[docId].daysOn[date];
+                for (const date in docData.daysOn) {
+                    const onType = docData.daysOn[date];
                     if(schedule[date]) {
                         const isSaturday = new Date(date).getUTCDay() === 6;
-                        if ((onType === 'all' && !isSaturday && (schedule[date].morning !== docId || schedule[date].afternoon !== docId)) || (onType === 'morning' && schedule[date].morning !== docId) || (onType === 'afternoon' && schedule[date].afternoon !== docId) || (onType === 'all' && isSaturday && schedule[date].saturday !== docId)) return { penalty: Infinity, bonus: 0 };
+                        if ((onType === 'all' && !isSaturday && (schedule[date].morning !== docId || schedule[date].afternoon !== docId)) || (onType === 'morning' && schedule[date].morning !== docId) || (onType === 'afternoon' && schedule[date].afternoon !== docId) || (onType === 'all' && isSaturday && schedule[date].saturday !== docId)) {
+                             return { penalty: Infinity, bonus: 0, explanation: { penalties: [`${docData.name} missed required shift on ${date}`]} };
+                        }
                     }
                 }
             }
@@ -576,6 +800,12 @@
         
         function isDoctorAvailableForShift(docId, shift) {
             const offType = DOCTORS_DATA[docId].daysOff[shift.date];
+            const isSaturday = new Date(shift.date).getUTCDay() === 6;
+            
+            if (isSaturday && shift.type === 'saturday') {
+                return !(offType === 'all' || (offType === 'morning' || offType === 'afternoon'));
+            }
+            
             return !(offType === 'all' || (offType && offType.toLowerCase() === shift.type.toLowerCase()));
         }
 
@@ -733,7 +963,7 @@
                 
                 dom.loadingProgress.textContent = `Attempt ${totalAttempts}/${MAX_ATTEMPTS}...`;
                 const { doctorShiftCounts } = getScheduleMetrics(result.schedule);
-                dom.currentShiftsSummary.textContent = `Shifts: ` + Object.entries(doctorShiftCounts).map(([id, c]) => `${DOCTORS_DATA[id].name.charAt(4)}:${c}`).join(' ');
+                dom.currentShiftsSummary.textContent = `Shifts: ` + Object.entries(doctorShiftCounts).map(([id, c]) => `${DOCTORS_DATA[id].name.slice(-1)}:${c}`).join(' ');
                 renderMiniCalendar(result.schedule);
                 dom.uniqueVariantsSummary.textContent = `Unique Variants Found: ${topVariants.length} / ${NUM_UNIQUE_SCHEDULES_TO_FIND}`;
                 if (topVariants.length > 0) {
@@ -783,22 +1013,19 @@
             dom.generateVariantsBtn.disabled = false;
             updateLog(`Finished. Found ${topVariants.length} unique schedules.`);
 
-            const controls = document.getElementById('variant-selection-controls');
-            const radioContainer = controls.querySelector('.flex.flex-wrap.gap-4');
-            radioContainer.innerHTML = '';
+            dom.variantRadios.innerHTML = '';
             ALL_GENERATED_VARIANTS = {};
 
             if (topVariants.length > 0) {
                 topVariants.forEach((data, index) => {
                     const key = `variant${index + 1}`;
-                    radioContainer.innerHTML += `<label class="inline-flex items-center"><input type="radio" name="scheduleVariant" value="${key}" ${index === 0 ? 'checked' : ''} class="form-radio text-sky-600"> <span class="ml-2">${key.replace('v', 'V ')} (Score: ${convertScoreToPercentage(data.penalty).toFixed(0)}%)</span></label>`;
                     ALL_GENERATED_VARIANTS[key] = data;
+                    dom.variantRadios.innerHTML += `<label class="inline-flex items-center"><input type="radio" name="scheduleVariant" value="${key}" ${index === 0 ? 'checked' : ''} class="form-radio text-sky-600"> <span class="ml-2">${key.replace('v', 'V ')} (Score: ${convertScoreToPercentage(data.penalty).toFixed(0)}%)</span ></label>`;
                 });
-                radioContainer.addEventListener('change', e => displayVariant(e.target.value));
+                
                 displayVariant('variant1');
                 document.getElementById('output-section').classList.remove('hidden');
                 dom.continueGenerationBtn.classList.remove('hidden');
-                controls.classList.remove('hidden');
             } else {
                 updateLog("No valid schedules could be generated in the given time.");
             }
@@ -818,28 +1045,42 @@
                         { label: 'Max', data: Object.values(DOCTORS_DATA).map(d => d.max), type: 'line', fill: false, borderColor: 'rgba(34, 197, 94, 0.7)', borderWidth: 2, borderDash: [5, 5] }
                     ]
                 },
-                options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true }}, plugins: { title: { display: true, text: `Final Shift Distribution`, font: { size: 18 }}}}
+                options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true }}, plugins: { title: { display: true, text: `Final Shift Distribution`, font: { size: 16 }}}}
             });
         }
         
-        function generatePrintableHTML(variantData) {
-            const { schedule, penalty, explanation } = variantData;
+        function generatePrintableHTML() {
+            // Use the live state for all printing data and metrics
+            const scoreData = calculateScheduleBadness(state.schedule);
+            const { schedule, penalty, explanation } = scoreData;
             const { doctorShiftCounts } = getScheduleMetrics(schedule);
             const monthName = new Date(currentYear, currentMonth).toLocaleString('en-US', { month: 'long' });
+            
+            const variantTitle = currentSelectedVariant === 'variantCustom' ? 
+                `${currentSelectedVariant.replace('variant', 'V ')} (Manual Adjustment)` : 
+                `${currentSelectedVariant.replace('variant', 'V ')} (Final)`;
+            
+            const scoreDisplay = penalty === Infinity ? 'HARD VIOLATION (0%)' : convertScoreToPercentage(penalty).toFixed(0) + '%';
+
 
             let explanationHTML = `<div class="breakdown-section"><h3>Score Breakdown</h3>`;
-            if (explanation.penalties.length > 1 || (explanation.penalties.length > 0 && explanation.bonuses.length > 0)) {
-                explanationHTML += `<h4>Penalties Applied:</h4><ul>`;
-                explanation.penalties.forEach(p => { explanationHTML += `<li>${p}</li>`; });
+            if (penalty === Infinity) {
+                explanationHTML += `<p style="color: #dc2626; font-weight: bold;">WARNING: Manual change resulted in a hard constraint violation!</p><ul>`;
+                explanation.penalties.forEach(p => explanationHTML += `<li style="color: #dc2626; font-weight: bold;">${p}</li>`);
                 explanationHTML += `</ul>`;
-            }
-            if (explanation.bonuses.length > 0) {
-                explanationHTML += `<h4>Bonuses Awarded:</h4><ul>`;
-                explanation.bonuses.forEach(b => { explanationHTML += `<li>${b}</li>`; });
-                explanationHTML += `</ul>`;
-            }
-            if ((explanation.penalties.length <= 1 && explanation.bonuses.length === 0) || (!explanation.penalties && !explanation.bonuses)) {
-                explanationHTML += `<p>This schedule has no specific penalties or bonuses.</p>`;
+            } else if (explanation.penalties.length > 0 || explanation.bonuses.length > 0) {
+                if (explanation.penalties.length > 0) {
+                    explanationHTML += `<h4>Penalties Applied:</h4><ul>`;
+                    explanation.penalties.forEach(p => { explanationHTML += `<li>${p}</li>`; });
+                    explanationHTML += `</ul>`;
+                }
+                if (explanation.bonuses.length > 0) {
+                    explanationHTML += `<h4>Bonuses Awarded:</h4><ul>`;
+                    explanation.bonuses.forEach(b => { explanationHTML += `<li>${b}</li>`; });
+                    explanationHTML += `</ul>`;
+                }
+            } else {
+                 explanationHTML += `<p>This schedule has no specific penalties or bonuses.</p>`;
             }
             explanationHTML += `</div>`;
 
@@ -847,7 +1088,7 @@
                 <style>
                     body{font-family:system-ui,sans-serif;margin:20px;color:#333}
                     .print-header{text-align:center;margin-bottom:20px;border-bottom:2px solid #ccc;padding-bottom:10px}
-                    .instructions{text-align:center;padding:10px;background-color:#f0f8ff;border:1px solid #add8e6;border-radius:5px;margin-top:20px}
+                    .instructions{display:none}
                     .summary-section{margin-bottom:20px;display:flex;justify-content:space-between;gap:20px;align-items:flex-start;}
                     .summary-table{border-collapse:collapse;width:35%} .summary-table th,.summary-table td{border:1px solid #ddd;padding:8px;text-align:left} .summary-table th{background-color:#f9f9f9}
                     .details-section{width:60%} .breakdown-section{background-color:#f9f9f9;border:1px solid #ddd;padding:10px;border-radius:5px;margin-top:10px}
@@ -860,7 +1101,7 @@
                 </style></head><body>
                 <div class="print-header"><h1>Doctor Schedule</h1><p>${monthName} ${currentYear}</p></div>
                 <div class="summary-section">
-                    <div class="details-section"><h2>Variant Details</h2><p><strong>Variant:</strong> ${currentSelectedVariant.replace('variant', 'Variant ')}</p><p><strong>Score:</strong> ${convertScoreToPercentage(penalty).toFixed(0)}%</p>${explanationHTML}</div>
+                    <div class="details-section"><h2>Variant Details</h2><p><strong>Variant:</strong> ${variantTitle}</p><p><strong>Score:</strong> ${scoreDisplay}</p>${explanationHTML}</div>
                     <table class="summary-table"><thead><tr><th colspan="2">Shift Summary</th></tr><tr><th>Doctor</th><th>Shifts</th></tr></thead><tbody>`;
             Object.entries(doctorShiftCounts).forEach(([docId, count]) => { html += `<tr><td>${DOCTORS_DATA[docId].name}</td><td>${count}</td></tr>`; });
             html += `</tbody></table></div><table class="calendar-grid"><thead><tr>`;
@@ -896,27 +1137,57 @@
         }
 
         function saveCurrentVariant() {
-            if (!currentSelectedVariant || !ALL_GENERATED_VARIANTS[currentSelectedVariant]) {
-                updateLog("No variant selected to save.");
+            if (Object.keys(state.schedule).length === 0) {
+                updateLog("No active schedule to save. Generate a variant first.");
                 return;
             }
-            const variantData = ALL_GENERATED_VARIANTS[currentSelectedVariant];
-            const printableHTML = generatePrintableHTML(variantData);
+            const printableHTML = generatePrintableHTML();
             const printWindow = window.open('', '_blank');
-            printWindow.document.write(printableHTML);
-            printWindow.document.close();
-            printWindow.focus();
-            updateLog(`Printable view for ${currentSelectedVariant} opened in a new tab.`);
+            
+            if (printWindow) {
+                 // Write the HTML to the new window
+                printWindow.document.write(printableHTML);
+                printWindow.document.close();
+                
+                // Add a small delay for print command, which is often required 
+                // for dynamically generated content, especially when it has a score of Infinity.
+                printWindow.onload = function() {
+                     printWindow.focus();
+                     printWindow.print();
+                };
+                
+                updateLog(`Printable view for the current schedule opened in a new tab.`);
+            } else {
+                 updateLog("Could not open print window. Please check your browser's popup blocker settings.");
+            }
         }
 
         window.displayVariant = function(variantId) {
+            if (!ALL_GENERATED_VARIANTS[variantId]) {
+                updateLog(`Error: Variant ${variantId} not found.`);
+                return;
+            }
+            
             currentSelectedVariant = variantId;
             const data = ALL_GENERATED_VARIANTS[variantId];
-            state.schedule = data.schedule;
+            
+            // Deep clone the schedule from the ALL_GENERATED_VARIANTS pool into the live state
+            state.schedule = JSON.parse(JSON.stringify(data.schedule));
+            
+            // Update the UI
             renderCalendar();
-            createFinalChart();
+            renderStatistics();
             dom.logContent.innerHTML = '';
-            updateLog(`Displaying: ${variantId.replace('variant', 'Variant ')} (Score: ${convertScoreToPercentage(data.penalty).toFixed(0)}%)`);
+            
+            // Update radio button
+            const radioEl = dom.variantRadios.querySelector(`input[value="${variantId}"]`);
+            if (radioEl) {
+                radioEl.checked = true;
+            }
+            
+            const variantType = variantId === 'variantCustom' ? ' (Custom)' : '';
+            const scoreDisplay = data.penalty === Infinity ? '0%' : convertScoreToPercentage(data.penalty).toFixed(0) + '%';
+            updateLog(`Displaying: ${variantId.replace('variant', 'Variant ')}${variantType} (Score: ${scoreDisplay})`);
         }
     </script>
 </body>
