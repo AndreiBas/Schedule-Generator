@@ -499,6 +499,7 @@
                     Object.entries(state.schedule[dateString]).forEach(([shiftType, doctorId]) => {
                         const doctor = doctorId ? DOCTORS_DATA[doctorId] : null;
                         const shiftName = shiftType.charAt(0).toUpperCase() + shiftType.slice(1);
+                        // The scheduled-shift must have a data-doc-id, even if null, for dragstart to work
                         html += `<div draggable="true" data-date="${dateString}" data-shift-type="${shiftType}" data-doc-id="${doctorId || ''}" class="scheduled-shift p-1 rounded text-xxs sm:text-xs font-semibold ${doctor ? doctor.color : 'bg-gray-100'} ${doctor ? doctor.textColor : 'text-gray-500'}">${shiftName}: ${doctor ? doctor.name : '___'}</div>`;
                     });
                     html += `</div>`;
@@ -532,9 +533,16 @@
 
             if (!isScheduledShift && !isInitialPill) return;
 
+            // NEW CHECK: Prevent dragging an unassigned shift (where doc-id is empty/null)
+            const docId = draggedItem.dataset.docId;
+            if (isScheduledShift && !docId) {
+                // If it's a scheduled shift block, but has no doctor, don't allow it to be dragged out.
+                return; 
+            }
+            
             e.dataTransfer.effectAllowed = 'move';
             e.dataTransfer.setData('text/plain', JSON.stringify({
-                docId: draggedItem.dataset.docId,
+                docId: docId,
                 sourceDate: draggedItem.dataset.date,
                 sourceShift: draggedItem.dataset.shiftType,
                 isInitialPill: isInitialPill
@@ -544,6 +552,9 @@
 
         function handleDragOver(e) {
             e.preventDefault();
+            // Allow drag over on the unassign zone (the whole calendar view, if not on a specific shift cell)
+            e.dataTransfer.dropEffect = 'move'; 
+            
             const dropTarget = e.target.closest('.scheduled-shift');
             if(dropTarget) {
                 dropTarget.classList.add('drag-over');
@@ -563,61 +574,104 @@
                 draggedItem.style.opacity = '1';
             }
             
-            const targetElement = e.target.closest('.scheduled-shift');
-            if (!targetElement) return;
-            
-            targetElement.classList.remove('drag-over');
-
             const sourceData = JSON.parse(e.dataTransfer.getData('text/plain'));
-            const targetDate = targetElement.dataset.date;
-            const targetShift = targetElement.dataset.shiftType;
-            const targetDocId = targetElement.dataset.docId;
             const sourceDocId = sourceData.docId;
 
             if (!sourceDocId) {
-                updateLog("Cannot drag an empty shift.");
+                updateLog("Drag action aborted: No doctor ID found for the dragged item.");
                 return;
             }
             
-            // Fix: Use UTCDay for reliable day check to avoid timezone issues
-            const targetDayOfWeek = new Date(targetDate).getUTCDay();
-            if (targetDayOfWeek === 0 || identifiedHolidays.includes(targetDate)) {
-                 updateLog("Cannot adjust shifts on Sundays or Holidays.");
-                 return;
-            }
+            const targetElement = e.target.closest('.scheduled-shift');
 
-            // 1. Check if the source doctor is available for the target shift
-            if (!isDoctorAvailableForShift(sourceDocId, { date: targetDate, type: targetShift })) {
-                updateLog(`Assignment failed: ${DOCTORS_DATA[sourceDocId].name} is not available for the ${targetShift} shift.`);
-                return;
-            }
+            // --- Case 1: Drop onto a calendar shift cell (SWAP or ASSIGN) ---
+            if (targetElement) {
+                
+                targetElement.classList.remove('drag-over');
 
-            // 2. Perform the swap/assignment
-            let actionSuccessful = false;
-            if (sourceData.sourceDate && sourceData.sourceShift) { 
-                // Case: Dragging a SCHEDULED doctor onto another SCHEDULED shift (SWAP or MOVE)
-                if (targetDocId && !isDoctorAvailableForShift(targetDocId, { date: sourceData.sourceDate, type: sourceData.sourceShift })) {
-                    updateLog(`Swap failed: ${DOCTORS_DATA[targetDocId].name} is not available for the original shift.`);
+                const targetDate = targetElement.dataset.date;
+                const targetShift = targetElement.dataset.shiftType;
+                const targetDocId = targetElement.dataset.docId;
+                
+                // Fix: Use UTCDay for reliable day check to avoid timezone issues
+                const targetDayOfWeek = new Date(targetDate).getUTCDay();
+                if (targetDayOfWeek === 0 || identifiedHolidays.includes(targetDate)) {
+                     updateLog("Cannot adjust shifts on Sundays or Holidays.");
+                     return;
+                }
+
+                // 1. Check if the source doctor is available for the target shift
+                if (!isDoctorAvailableForShift(sourceDocId, { date: targetDate, type: targetShift })) {
+                    updateLog(`Assignment failed: ${DOCTORS_DATA[sourceDocId].name} is not available for the ${targetShift} shift.`);
                     return;
                 }
-                
-                state.schedule[sourceData.sourceDate][sourceData.sourceShift] = targetDocId || null;
-                state.schedule[targetDate][targetShift] = sourceDocId;
-                updateLog(`Swapped ${DOCTORS_DATA[sourceDocId].name} with ${targetDocId ? DOCTORS_DATA[targetDocId].name : 'an empty shift'}.`);
-                actionSuccessful = true;
 
-            } else { 
-                // Case: Dragging an AVAILABLE doctor (initial pill) onto a SCHEDULED shift (ASSIGNMENT)
-                state.schedule[targetDate][targetShift] = sourceDocId;
-                updateLog(`Assigned ${DOCTORS_DATA[sourceDocId].name} to ${targetShift} on ${targetDate}.`);
-                actionSuccessful = true;
-            }
-            
-            // 3. Post-Action Steps
-            if (actionSuccessful) {
-                trackCustomVariant();
-                renderCalendar();
-                renderStatistics();
+                // 2. Perform the swap/assignment
+                let actionSuccessful = false;
+                if (sourceData.sourceDate && sourceData.sourceShift) { 
+                    // Case: Dragging a SCHEDULED doctor onto another SCHEDULED shift (SWAP or MOVE)
+                    if (targetDocId && !isDoctorAvailableForShift(targetDocId, { date: sourceData.sourceDate, type: sourceData.sourceShift })) {
+                        updateLog(`Swap failed: ${DOCTORS_DATA[targetDocId].name} is not available for the original shift.`);
+                        return;
+                    }
+                    
+                    // The old shift (source) takes the doctor from the new shift (target) or null
+                    state.schedule[sourceData.sourceDate][sourceData.sourceShift] = targetDocId || null;
+                    // The new shift (target) takes the doctor from the old shift (source)
+                    state.schedule[targetDate][targetShift] = sourceDocId;
+                    updateLog(`Swapped ${DOCTORS_DATA[sourceDocId].name} with ${targetDocId ? DOCTORS_DATA[targetDocId].name : 'an empty shift'}.`);
+                    actionSuccessful = true;
+
+                } else { 
+                    // Case: Dragging an AVAILABLE doctor (initial pill) onto a SCHEDULED shift (ASSIGNMENT)
+                    state.schedule[targetDate][targetShift] = sourceDocId;
+                    updateLog(`Assigned ${DOCTORS_DATA[sourceDocId].name} to ${targetShift} on ${targetDate}.`);
+                    actionSuccessful = true;
+                }
+                
+                // 3. Post-Action Steps for success
+                if (actionSuccessful) {
+                    trackCustomVariant();
+                    renderCalendar();
+                    renderStatistics();
+                }
+
+            } 
+            // --- Case 2: Drop outside a calendar shift cell (UNASSIGN) ---
+            // Condition: Drag originated from a scheduled shift AND did NOT drop onto a new shift cell
+            else if (sourceData.sourceDate && sourceData.sourceShift) { 
+                
+                const { sourceDate, sourceShift } = sourceData;
+                
+                // Safety check: Cannot unassign a shift that is required ('Days On')
+                const onType = DOCTORS_DATA[sourceDocId].daysOn[sourceDate];
+                if (onType) {
+                    // Check if the shift being unassigned matches the 'Days On' request
+                    const isSaturday = new Date(sourceDate).getUTCDay() === 6;
+                    const shiftMatch = (isSaturday && onType === 'all' && sourceShift === 'saturday') || 
+                                       (!isSaturday && onType === 'all') || 
+                                       (!isSaturday && onType === sourceShift);
+
+                    if (shiftMatch) {
+                        updateLog(`Unassign failed: ${DOCTORS_DATA[sourceDocId].name} is required to work this shift on ${sourceDate} (Day On request).`);
+                        return;
+                    }
+                }
+                
+                // Perform Unassignment
+                if (state.schedule[sourceDate] && state.schedule[sourceDate][sourceShift]) {
+                    state.schedule[sourceDate][sourceShift] = null; // Mark the shift as unassigned
+                    updateLog(`Unassigned ${DOCTORS_DATA[sourceDocId].name} from ${sourceShift} on ${sourceDate}.`);
+                    
+                    // Post-Action Steps
+                    trackCustomVariant();
+                    renderCalendar();
+                    renderStatistics();
+                }
+
+            } else {
+                // Drop outside the calendar, and the drag started from an initial pill (Available Doctor list)
+                updateLog("Drop action aborted: Available doctors must be dropped onto a shift cell.");
             }
         }
         
@@ -1137,10 +1191,12 @@
                  if(identifiedHolidays.includes(dateString)) html += `<div class="text-xs font-semibold text-cyan-700 mt-1">Holiday</div>`;
                 if (schedule[dateString] && dayOfWeek !== 0) {
                     Object.entries(schedule[dateString]).forEach(([shiftType, doctorId]) => {
+                        const shiftName = shiftType.charAt(0).toUpperCase() + shiftType.slice(1);
                         if (doctorId) {
                             const doctor = DOCTORS_DATA[doctorId];
-                            const shiftName = shiftType.charAt(0).toUpperCase() + shiftType.slice(1);
                             html += `<div class="shift" style="background-color:${doctor.printBgColor}; color:${doctor.printTextColor};"><strong>${shiftName}:</strong> ${doctor.name}</div>`;
+                        } else {
+                            html += `<div class="shift" style="background-color: #f3f4f6; color: #6b7280;"><strong>${shiftName}:</strong> ___</div>`;
                         }
                     });
                 }
