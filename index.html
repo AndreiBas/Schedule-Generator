@@ -49,7 +49,6 @@
         </header>
 
         <main class="space-y-12">
-            <!-- Section 1: Inputs -->
             <section id="inputs-section">
                  <h2 class="text-2xl font-semibold mb-4 border-b pb-2">1. Initial Parameters</h2>
                 <div class="p-4 bg-white rounded-lg shadow">
@@ -75,8 +74,7 @@
                     </div>
                     
                     <div id="doctor-cards-container" class="flex overflow-x-auto space-x-4 p-2 lg:grid lg:grid-cols-4 xl:grid-cols-5 lg:space-x-0 lg:gap-6">
-                        <!-- Doctor Cards will be rendered here -->
-                    </div>
+                        </div>
 
                     <div class="mt-6 mb-4 flex items-center">
                         <input type="checkbox" id="prioritize-double-shifts" class="mr-2 rounded border-gray-300 text-sky-600 shadow-sm focus:border-sky-500 focus:ring-sky-500" checked>
@@ -97,7 +95,6 @@
                 </div>
             </section>
             
-            <!-- Section 2: Generation Trigger -->
             <section id="generation-section">
                 <h2 class="text-2xl font-semibold mb-4 border-b pb-2">2. Generate Schedules</h2>
                 <div class="flex justify-center mb-8">
@@ -105,7 +102,6 @@
                 </div>
             </section>
 
-            <!-- Section 3: Final Output & Interactive View -->
             <section id="output-section" class="hidden">
                  <h2 id="output-heading" class="text-2xl font-semibold mb-4 border-b pb-2">3. Calendar & Analysis</h2>
                  <div id="variant-selection-controls" class="mb-6 p-4 bg-white rounded-lg shadow hidden">
@@ -122,7 +118,6 @@
                  </div>
 
                 <div class="lg:grid lg:grid-cols-12 lg:gap-8">
-                    <!-- Left Column: Statistics (Hidden initially) -->
                     <div id="statistics-panel" class="lg:col-span-4 space-y-6 hidden">
                          <div class="p-4 bg-white rounded-lg shadow">
                             <h3 class="font-bold text-lg mb-2">Live Schedule Statistics</h3>
@@ -136,7 +131,6 @@
                             <div id="log-content" class="text-sm font-mono space-y-1"></div>
                         </div>
                     </div>
-                    <!-- Right Column: Calendar (Full width initially) -->
                     <div id="calendar-container-wrapper" class="lg:col-span-12 mt-8 lg:mt-0">
                         <div id="calendar-view" class="bg-white p-4 rounded-lg shadow overflow-x-auto"></div>
                     </div>
@@ -145,7 +139,6 @@
         </main>
     </div>
 
-    <!-- Loading Overlay -->
     <div id="loading-overlay" class="loading-overlay hidden">
         <div class="spinner"></div>
         <p id="loading-title" class="text-lg text-slate-700">Generating schedules...</p>
@@ -303,12 +296,12 @@
 
                 let radioHTML;
                 if (dayOfWeek === 6) { 
-                    radioHTML = `<input type="radio" id="${type}-${docId}-${date}-all" name="${type}-${docId}-${date}" value="all" checked disabled><label for="${type}-${docId}-${date}-all">All Day (Sat)</label>`;
+                    radioHTML = `<input type="radio" id="${type}-${docId}-${date}-all" name="${type}-${docId}-${date}" value="all" data-type="${type}" data-doc-id="${docId}" data-date="${date}" checked disabled><label for="${type}-${docId}-${date}-all">All Day (Sat)</label>`;
                 } else {
                     radioHTML = `
-                        <input type="radio" id="${type}-${docId}-${date}-all" name="${type}-${docId}-${date}" value="all" ${shiftType === 'all' ? 'checked' : ''}><label for="${type}-${docId}-${date}-all">All</label>
-                        <input type="radio" id="${type}-${docId}-${date}-morning" name="${type}-${docId}-${date}" value="morning" ${shiftType === 'morning' ? 'checked' : ''}><label for="${type}-${docId}-${date}-morn">M</label>
-                        <input type="radio" id="${type}-${docId}-${date}-afternoon" name="${type}-${docId}-${date}" value="afternoon" ${shiftType === 'afternoon' ? 'checked' : ''}><label for="${type}-${docId}-${date}-aft">A</label>
+                        <input type="radio" id="${type}-${docId}-${date}-all" name="${type}-${docId}-${date}" value="all" data-type="${type}" data-doc-id="${docId}" data-date="${date}" ${shiftType === 'all' ? 'checked' : ''}><label for="${type}-${docId}-${date}-all">All</label>
+                        <input type="radio" id="${type}-${docId}-${date}-morning" name="${type}-${docId}-${date}" value="morning" data-type="${type}" data-doc-id="${docId}" data-date="${date}" ${shiftType === 'morning' ? 'checked' : ''}><label for="${type}-${docId}-${date}-morn">M</label>
+                        <input type="radio" id="${type}-${docId}-${date}-afternoon" name="${type}-${docId}-${date}" value="afternoon" data-type="${type}" data-doc-id="${docId}" data-date="${date}" ${shiftType === 'afternoon' ? 'checked' : ''}><label for="${type}-${docId}-${date}-aft">A</label>
                     `;
                 }
 
@@ -316,7 +309,7 @@
                 container.appendChild(detailEl);
             }
             container.querySelectorAll('input[type="radio"]').forEach(radio => radio.addEventListener('change', e => {
-                const [type, docId, date] = e.target.id.split('-');
+                const { type, docId, date } = e.target.dataset;
                 const dataKey = type === 'on' ? 'daysOn' : 'daysOff';
                 DOCTORS_DATA[docId][dataKey][date] = e.target.value;
             }));
