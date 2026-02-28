@@ -442,9 +442,78 @@
             createFinalChart();
         }
 
+        function getScheduleViolations(schedule) {
+            const violations = {};
+            const addViolation = (date, shift, type, icon, message, cssClass) => {
+                if (!violations[date]) violations[date] = {};
+                if (!violations[date][shift]) violations[date][shift] = [];
+                violations[date][shift].push({ type, icon, message, cssClass });
+            };
+
+            const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+            const satCounts = {};
+            
+            for (const docId in DOCTORS_DATA) {
+                satCounts[docId] = 0;
+                let currentStreak = 0;
+                let streakShifts = []; 
+                
+                for (let d = 1; d <= daysInMonth; d++) {
+                    const todayStr = new Date(currentYear, currentMonth, d).toISOString().split('T')[0];
+                    const tomorrowStr = d < daysInMonth ? new Date(currentYear, currentMonth, d + 1).toISOString().split('T')[0] : null;
+                    
+                    let workedToday = false;
+                    let todayShifts = [];
+
+                    if (schedule[todayStr]) {
+                        if (schedule[todayStr].morning === docId) { workedToday = true; todayShifts.push('morning'); }
+                        if (schedule[todayStr].afternoon === docId) { workedToday = true; todayShifts.push('afternoon'); }
+                        if (schedule[todayStr].saturday === docId) { 
+                            workedToday = true; 
+                            todayShifts.push('saturday'); 
+                            satCounts[docId]++;
+                            if (satCounts[docId] > 1) {
+                                addViolation(todayStr, 'saturday', 'overload', '🛑', `Overload: ${satCounts[docId]}nd Saturday shift`, 'ring-2 ring-red-500 ring-inset');
+                            }
+                        }
+                    }
+
+                    if (workedToday) {
+                        currentStreak++;
+                        todayShifts.forEach(shift => streakShifts.push({date: todayStr, shift}));
+                    } else {
+                        if (currentStreak >= 3) {
+                            streakShifts.forEach(s => {
+                                addViolation(s.date, s.shift, 'streak', '🔥', `Fatigue: Part of a ${currentStreak}-day streak`, 'ring-2 ring-orange-500 ring-inset');
+                            });
+                        }
+                        currentStreak = 0;
+                        streakShifts = [];
+                    }
+
+                    if (tomorrowStr && schedule[todayStr] && schedule[tomorrowStr]) {
+                        if (schedule[todayStr].afternoon === docId && schedule[tomorrowStr].morning === docId) {
+                            addViolation(todayStr, 'afternoon', 'clopen', '⚠️', 'Harsh Turnaround (Clopen)', 'ring-2 ring-amber-400 ring-inset');
+                            addViolation(tomorrowStr, 'morning', 'clopen', '⚠️', 'Harsh Turnaround (Clopen)', 'ring-2 ring-amber-400 ring-inset');
+                        }
+                    }
+                }
+                
+                if (currentStreak >= 3) {
+                    streakShifts.forEach(s => {
+                        addViolation(s.date, s.shift, 'streak', '🔥', `Fatigue: Part of a ${currentStreak}-day streak`, 'ring-2 ring-orange-500 ring-inset');
+                    });
+                }
+            }
+            return violations;
+        }
+
         function renderCalendar() {
             const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
             const firstDayOfMonth = new Date(currentYear, currentMonth, 1).getDay();
+            
+            const violations = getScheduleViolations(state.schedule);
+            
             let html = `<table class="w-full border-collapse"><thead><tr class="bg-slate-100">`;
             ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].forEach(day => html += `<th class="p-2 border text-sm">${day}</th>`);
             html += `</tr></thead><tbody><tr>`;
@@ -483,13 +552,32 @@
                 
                 if (isHoliday) html += `<div class="text-xs font-semibold text-cyan-700 mt-1">Holiday</div>`;
                 
-                // --- SCHEDULED SHIFTS ---
+                // --- SCHEDULED SHIFTS (With Visual Indicators) ---
                 if (state.schedule[dateString]) {
                     html += `<div class="space-y-1 my-1">`;
                     Object.entries(state.schedule[dateString]).forEach(([shiftType, doctorId]) => {
                         const doctor = doctorId ? DOCTORS_DATA[doctorId] : null;
                         const shiftName = shiftType.charAt(0).toUpperCase() + shiftType.slice(1);
-                        html += `<div draggable="true" data-date="${dateString}" data-shift-type="${shiftType}" data-doc-id="${doctorId || ''}" class="scheduled-shift p-1 rounded text-xxs sm:text-xs font-semibold ${doctor ? doctor.color : 'bg-gray-100'} ${doctor ? doctor.textColor : 'text-gray-500'}">${shiftName}: ${doctor ? doctor.name : '___'}</div>`;
+                        
+                        let iconsHtml = '';
+                        let extraClasses = '';
+                        let tooltips = [];
+
+                        if (doctorId && violations[dateString] && violations[dateString][shiftType]) {
+                            const shiftViolations = violations[dateString][shiftType];
+                            shiftViolations.forEach(v => {
+                                iconsHtml += `<span title="${v.message}" class="cursor-help cursor-pointer ml-1">${v.icon}</span>`;
+                                extraClasses += ` ${v.cssClass}`;
+                                tooltips.push(v.message);
+                            });
+                        }
+
+                        const titleAttr = tooltips.length > 0 ? `title="${tooltips.join(' | ')}"` : '';
+
+                        html += `<div draggable="true" data-date="${dateString}" data-shift-type="${shiftType}" data-doc-id="${doctorId || ''}" ${titleAttr} class="scheduled-shift p-1 rounded text-xxs sm:text-xs font-semibold flex justify-between items-center ${doctor ? doctor.color : 'bg-gray-100'} ${doctor ? doctor.textColor : 'text-gray-500'} ${extraClasses}">
+                                    <span>${shiftName}: ${doctor ? doctor.name : '___'}</span>
+                                    ${iconsHtml ? `<span class="flex items-center bg-white/50 rounded px-0.5">${iconsHtml}</span>` : ''}
+                                 </div>`;
                     });
                     html += `</div>`;
                 }
@@ -777,11 +865,11 @@
                         currentStreak++;
                         workedDays.push(d);
                     } else {
-                        // FIX: Now we penalize 2 adjacent days to break up the schedule!
-                        if (currentStreak === 2) streakPoints += 60; // Nudge to avoid 2-day streaks
-                        if (currentStreak === 3) streakPoints += 200; // Increased penalty
-                        if (currentStreak === 4) streakPoints += 500; // Heavy penalty
-                        if (currentStreak >= 5) streakPoints += 1000; // Massive penalty
+                        // Granular Streaks (evaluated when a streak breaks)
+                        if (currentStreak === 2) streakPoints += 60; 
+                        if (currentStreak === 3) streakPoints += 200; 
+                        if (currentStreak === 4) streakPoints += 500; 
+                        if (currentStreak >= 5) streakPoints += 1000; 
                         currentStreak = 0; 
                     }
 
