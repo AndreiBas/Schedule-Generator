@@ -367,7 +367,6 @@
             reader.readAsText(file);
         }
 
-        // --- MODIFICATION: Corrected Load Parameters Flow ---
         function loadInitialParameters() {
             currentMonth = parseInt(dom.monthInput.value) - 1;
             currentYear = parseInt(dom.yearInput.value);
@@ -387,12 +386,10 @@
             state = { schedule: {}, log: [] };
             dom.logContent.innerHTML = '';
             
-            // Show the output section, but hide the parts we don't need yet
             dom.outputSection.classList.remove('hidden');
             dom.statisticsPanel.classList.add('hidden');
             dom.variantSelectionControls.classList.add('hidden');
             
-            // Make calendar full width initially
             dom.calendarContainerWrapper.classList.remove('lg:col-span-8');
             dom.calendarContainerWrapper.classList.add('lg:col-span-12');
 
@@ -457,19 +454,19 @@
             for (let day = 1; day <= daysInMonth; day++) {
                 const date = new Date(currentYear, currentMonth, day);
                 const dateString = date.toISOString().split('T')[0];
-                const dayOfWeek = date.getUTCDay(); // Use UTCDay for reliable day check independent of timezone
+                const dayOfWeek = date.getUTCDay(); 
                 if (dayOfWeek === 0 && day !== 1) html += `</tr><tr>`;
                 const isHoliday = identifiedHolidays.includes(dateString);
                 let cellClass = dayOfWeek === 0 ? 'bg-slate-200' : 'bg-white';
                 if (isHoliday) cellClass = 'holiday-cell';
                 html += `<td class="border p-1 h-28 align-top ${cellClass}"><div class="flex justify-between items-start"><div class="font-bold text-sm">${day}</div></div>`;
                 
-                // --- MORNING / SATURDAY Availability List (Top/Center) ---
+                // --- MORNING / SATURDAY Availability List ---
                 html += `<div class="availability-list mt-1">`;
                 let shiftsForAvailability = [];
-                if (dayOfWeek < 6 && dayOfWeek !== 0 && !isHoliday) { // Mon - Fri
+                if (dayOfWeek < 6 && dayOfWeek !== 0 && !isHoliday) { 
                     shiftsForAvailability.push('morning');
-                } else if (dayOfWeek === 6 && !isHoliday) { // Saturday
+                } else if (dayOfWeek === 6 && !isHoliday) { 
                     shiftsForAvailability.push('saturday');
                 }
 
@@ -492,15 +489,14 @@
                     Object.entries(state.schedule[dateString]).forEach(([shiftType, doctorId]) => {
                         const doctor = doctorId ? DOCTORS_DATA[doctorId] : null;
                         const shiftName = shiftType.charAt(0).toUpperCase() + shiftType.slice(1);
-                        // The scheduled-shift must have a data-doc-id, even if null, for dragstart to work
                         html += `<div draggable="true" data-date="${dateString}" data-shift-type="${shiftType}" data-doc-id="${doctorId || ''}" class="scheduled-shift p-1 rounded text-xxs sm:text-xs font-semibold ${doctor ? doctor.color : 'bg-gray-100'} ${doctor ? doctor.textColor : 'text-gray-500'}">${shiftName}: ${doctor ? doctor.name : '___'}</div>`;
                     });
                     html += `</div>`;
                 }
                 
-                // --- AFTERNOON Availability List (Bottom) ---
+                // --- AFTERNOON Availability List ---
                 html += `<div class="availability-list mt-auto">`;
-                if (dayOfWeek < 6 && dayOfWeek !== 0 && !isHoliday) { // Mon - Fri only for afternoon
+                if (dayOfWeek < 6 && dayOfWeek !== 0 && !isHoliday) { 
                     const availableAfternoon = allDoctorIds.filter(id => isDoctorAvailableForShift(id, {date: dateString, type: 'afternoon'}));
                     availableAfternoon.forEach(id => {
                         const doc = DOCTORS_DATA[id];
@@ -526,12 +522,8 @@
 
             if (!isScheduledShift && !isInitialPill) return;
 
-            // NEW CHECK: Prevent dragging an unassigned shift (where doc-id is empty/null)
             const docId = draggedItem.dataset.docId;
-            if (isScheduledShift && !docId) {
-                // If it's a scheduled shift block, but has no doctor, don't allow it to be dragged out.
-                return; 
-            }
+            if (isScheduledShift && !docId) { return; }
             
             e.dataTransfer.effectAllowed = 'move';
             e.dataTransfer.setData('text/plain', JSON.stringify({
@@ -545,27 +537,19 @@
 
         function handleDragOver(e) {
             e.preventDefault();
-            // Allow drag over on the unassign zone (the whole calendar view, if not on a specific shift cell)
             e.dataTransfer.dropEffect = 'move'; 
-            
             const dropTarget = e.target.closest('.scheduled-shift');
-            if(dropTarget) {
-                dropTarget.classList.add('drag-over');
-            }
+            if(dropTarget) { dropTarget.classList.add('drag-over'); }
         }
         
         function handleDragLeave(e) {
              const dropTarget = e.target.closest('.scheduled-shift');
-            if(dropTarget) {
-                dropTarget.classList.remove('drag-over');
-            }
+            if(dropTarget) { dropTarget.classList.remove('drag-over'); }
         }
 
         function handleDrop(e) {
             e.preventDefault();
-            if (draggedItem) {
-                draggedItem.style.opacity = '1';
-            }
+            if (draggedItem) { draggedItem.style.opacity = '1'; }
             
             const sourceData = JSON.parse(e.dataTransfer.getData('text/plain'));
             const sourceDocId = sourceData.docId;
@@ -577,69 +561,50 @@
             
             const targetElement = e.target.closest('.scheduled-shift');
 
-            // --- Case 1: Drop onto a calendar shift cell (SWAP or ASSIGN) ---
             if (targetElement) {
-                
                 targetElement.classList.remove('drag-over');
 
                 const targetDate = targetElement.dataset.date;
                 const targetShift = targetElement.dataset.shiftType;
                 const targetDocId = targetElement.dataset.docId;
                 
-                // Fix: Use UTCDay for reliable day check to avoid timezone issues
                 const targetDayOfWeek = new Date(targetDate).getUTCDay();
                 if (targetDayOfWeek === 0 || identifiedHolidays.includes(targetDate)) {
                      updateLog("Cannot adjust shifts on Sundays or Holidays.");
                      return;
                 }
 
-                // 1. Check if the source doctor is available for the target shift
                 if (!isDoctorAvailableForShift(sourceDocId, { date: targetDate, type: targetShift })) {
                     updateLog(`Assignment failed: ${DOCTORS_DATA[sourceDocId].name} is not available for the ${targetShift} shift.`);
                     return;
                 }
 
-                // 2. Perform the swap/assignment
                 let actionSuccessful = false;
                 if (sourceData.sourceDate && sourceData.sourceShift) { 
-                    // Case: Dragging a SCHEDULED doctor onto another SCHEDULED shift (SWAP or MOVE)
                     if (targetDocId && !isDoctorAvailableForShift(targetDocId, { date: sourceData.sourceDate, type: sourceData.sourceShift })) {
                         updateLog(`Swap failed: ${DOCTORS_DATA[targetDocId].name} is not available for the original shift.`);
                         return;
                     }
-                    
-                    // The old shift (source) takes the doctor from the new shift (target) or null
                     state.schedule[sourceData.sourceDate][sourceData.sourceShift] = targetDocId || null;
-                    // The new shift (target) takes the doctor from the old shift (source)
                     state.schedule[targetDate][targetShift] = sourceDocId;
                     updateLog(`Swapped ${DOCTORS_DATA[sourceDocId].name} with ${targetDocId ? DOCTORS_DATA[targetDocId].name : 'an empty shift'}.`);
                     actionSuccessful = true;
-
                 } else { 
-                    // Case: Dragging an AVAILABLE doctor (initial pill) onto a SCHEDULED shift (ASSIGNMENT)
                     state.schedule[targetDate][targetShift] = sourceDocId;
                     updateLog(`Assigned ${DOCTORS_DATA[sourceDocId].name} to ${targetShift} on ${targetDate}.`);
                     actionSuccessful = true;
                 }
                 
-                // 3. Post-Action Steps for success
                 if (actionSuccessful) {
                     trackCustomVariant();
                     renderCalendar();
                     renderStatistics();
                 }
 
-            } 
-            // --- Case 2: Drop outside a calendar shift cell (UNASSIGN) ---
-            // Condition: Drag originated from a scheduled shift AND did NOT drop onto a new shift cell
-            else if (sourceData.sourceDate && sourceData.sourceShift) { 
-                
+            } else if (sourceData.sourceDate && sourceData.sourceShift) { 
                 const { sourceDate, sourceShift } = sourceData;
-                
-                // Safety check: Cannot unassign a shift that is required ('Days On')
                 const onType = DOCTORS_DATA[sourceDocId].daysOn[sourceDate];
                 if (onType) {
-                    // Check if the shift being unassigned matches the 'Days On' request
                     const isSaturday = new Date(sourceDate).getUTCDay() === 6;
                     const shiftMatch = (isSaturday && onType === 'all' && sourceShift === 'saturday') || 
                                        (!isSaturday && onType === 'all') || 
@@ -651,38 +616,30 @@
                     }
                 }
                 
-                // Perform Unassignment
                 if (state.schedule[sourceDate] && state.schedule[sourceDate][sourceShift]) {
-                    state.schedule[sourceDate][sourceShift] = null; // Mark the shift as unassigned
+                    state.schedule[sourceDate][sourceShift] = null;
                     updateLog(`Unassigned ${DOCTORS_DATA[sourceDocId].name} from ${sourceShift} on ${sourceDate}.`);
-                    
-                    // Post-Action Steps
                     trackCustomVariant();
                     renderCalendar();
                     renderStatistics();
                 }
-
             } else {
-                // Drop outside the calendar, and the drag started from an initial pill (Available Doctor list)
                 updateLog("Drop action aborted: Available doctors must be dropped onto a shift cell.");
             }
         }
         
         function trackCustomVariant() {
             const customKey = 'variantCustom';
-            // Deep clone the current state.schedule to save the manual edits
             const customScheduleClone = JSON.parse(JSON.stringify(state.schedule));
             const currentScore = calculateScheduleBadness(customScheduleClone);
             
             ALL_GENERATED_VARIANTS[customKey] = {
                 ...currentScore,
-                schedule: customScheduleClone, // Save the actual schedule here
+                schedule: customScheduleClone, 
                 hash: JSON.stringify(customScheduleClone)
             };
             
             const scoreText = currentScore.penalty === Infinity ? '0%' : convertScoreToPercentage(currentScore.penalty).toFixed(0) + '%';
-
-            // Check if the custom radio button already exists
             let customRadio = dom.variantRadios.querySelector(`input[value="${customKey}"]`);
             if (!customRadio) {
                 const newRadioLabel = document.createElement('label');
@@ -690,12 +647,10 @@
                 newRadioLabel.innerHTML = `<input type="radio" name="scheduleVariant" value="${customKey}" class="form-radio text-red-600"> <span class="ml-2">${customKey.replace('variant', 'V ')} (Custom) (Score: ${scoreText})</span>`;
                 dom.variantRadios.appendChild(newRadioLabel);
             } else {
-                // If it exists, update the score display
                 const scoreSpan = customRadio.nextElementSibling;
                 scoreSpan.textContent = ` ${customKey.replace('variant', 'V ')} (Custom) (Score: ${scoreText})`;
             }
             
-            // Set the custom variant as currently selected in both the JS state and UI
             const finalCustomRadio = dom.variantRadios.querySelector(`input[value="${customKey}"]`);
             if (finalCustomRadio) {
                 finalCustomRadio.checked = true;
@@ -760,7 +715,9 @@
             let penaltyScore = 0;
             let bonusScore = 0;
             const { doctorShiftCounts, saturdayShiftCounts } = getScheduleMetrics(schedule);
+            const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
             
+            // --- HARD CONSTRAINTS (Infinity Penalty) ---
             for (const docId in DOCTORS_DATA) {
                 const docData = DOCTORS_DATA[docId];
                 const shiftCount = doctorShiftCounts[docId];
@@ -792,26 +749,100 @@
                 }
             }
             
+            // --- CRITICAL PENALTIES ---
             let unassignedCount = 0;
             Object.values(schedule).forEach(day => Object.values(day).forEach(doc => { if (doc === null) unassignedCount++; }));
-            if (unassignedCount > 0) { penaltyScore += unassignedCount * 500; explanation.penalties.push(`Had ${unassignedCount} unassigned shift(s)`); }
+            if (unassignedCount > 0) { 
+                penaltyScore += unassignedCount * 600; 
+                explanation.penalties.push(`Had ${unassignedCount} unassigned shift(s)`); 
+            }
 
-            let consecutiveCount = 0;
+            // --- FATIGUE, STREAKS & PATIENT WAIT TIME PENALTIES ---
+            let clopenCount = 0;
+            let spacingPenalty = 0;
+            let patientWaitPenalty = 0;
+            let streakPoints = 0;
+            
             for(const docId in DOCTORS_DATA) {
-                for(let d = 1; d < new Date(currentYear, currentMonth + 1, 0).getDate(); d++) {
-                    const today = new Date(currentYear, currentMonth, d).toISOString().split('T')[0];
-                    const tomorrow = new Date(currentYear, currentMonth, d + 1).toISOString().split('T')[0];
-                    if(schedule[today] && Object.values(schedule[today]).includes(docId) && schedule[tomorrow] && Object.values(schedule[tomorrow]).includes(docId)) consecutiveCount++;
+                let currentStreak = 0;
+                let workedDays = [];
+                
+                for(let d = 1; d <= daysInMonth; d++) {
+                    const todayStr = new Date(currentYear, currentMonth, d).toISOString().split('T')[0];
+                    const tomorrowStr = d < daysInMonth ? new Date(currentYear, currentMonth, d + 1).toISOString().split('T')[0] : null;
+                    
+                    const worksToday = schedule[todayStr] && Object.values(schedule[todayStr]).includes(docId);
+                    
+                    if (worksToday) {
+                        currentStreak++;
+                        workedDays.push(d);
+                    } else {
+                        // FIX: Now we penalize 2 adjacent days to break up the schedule!
+                        if (currentStreak === 2) streakPoints += 60; // Nudge to avoid 2-day streaks
+                        if (currentStreak === 3) streakPoints += 200; // Increased penalty
+                        if (currentStreak === 4) streakPoints += 500; // Heavy penalty
+                        if (currentStreak >= 5) streakPoints += 1000; // Massive penalty
+                        currentStreak = 0; 
+                    }
+
+                    // Clopen Logic: Afternoon today, Morning tomorrow
+                    if (tomorrowStr && schedule[todayStr] && schedule[tomorrowStr]) {
+                        if (schedule[todayStr].afternoon === docId && schedule[tomorrowStr].morning === docId) {
+                            clopenCount++;
+                        }
+                    }
+                }
+                // Catch any active streak at the very end of the month
+                if (currentStreak === 2) streakPoints += 60; 
+                if (currentStreak === 3) streakPoints += 200; 
+                if (currentStreak === 4) streakPoints += 500;
+                if (currentStreak >= 5) streakPoints += 1000;
+                
+                // --- THE PATIENT CONTINUITY ENGINE ---
+                if (workedDays.length > 0) {
+                    let gaps = [];
+                    gaps.push(workedDays[0] - 1); 
+                    for (let i = 1; i < workedDays.length; i++) {
+                        gaps.push(workedDays[i] - workedDays[i-1] - 1); 
+                    }
+                    gaps.push(daysInMonth - workedDays[workedDays.length - 1]); 
+
+                    const expectedShifts = (DOCTORS_DATA[docId].min + DOCTORS_DATA[docId].max) / 2;
+                    const idealGap = (daysInMonth - expectedShifts) / (expectedShifts + 1);
+                    const roundedIdealGap = Math.ceil(idealGap);
+                    
+                    let docGapPenalty = 0;
+                    let maxGap = 0;
+                    
+                    for (let g of gaps) {
+                        if (g > maxGap) maxGap = g;
+                        
+                        if (g > roundedIdealGap + 2) {
+                            const deviation = g - (roundedIdealGap + 2);
+                            docGapPenalty += deviation * 15; 
+                        }
+                    }
+                    spacingPenalty += docGapPenalty;
+                    
+                    // --- MAX WAIT TIME THRESHOLD ---
+                    if (maxGap > roundedIdealGap + 4) {
+                        const severity = maxGap - (roundedIdealGap + 4);
+                        patientWaitPenalty += severity * 30; 
+                    }
                 }
             }
-            if(consecutiveCount > 0) { penaltyScore += consecutiveCount * 400; explanation.penalties.push(`Contained ${consecutiveCount} instance(s) of consecutive work days`); }
+            
+            if(clopenCount > 0) { penaltyScore += clopenCount * 150; explanation.penalties.push(`Contained ${clopenCount} harsh turnaround(s)`); }
+            if(streakPoints > 0) { penaltyScore += streakPoints; explanation.penalties.push(`Penalized ${streakPoints} pts for adjacent/consecutive working days`); }
+            if(spacingPenalty > 0) { penaltyScore += spacingPenalty; explanation.penalties.push(`Penalized ${spacingPenalty.toFixed(1)} pts for uneven distribution (Gaps)`); }
+            if(patientWaitPenalty > 0) { penaltyScore += patientWaitPenalty; explanation.penalties.push(`Penalized ${patientWaitPenalty} pts for excessive patient wait times`); }
 
             let saturdayOverloadCount = 0;
             for (const docId in DOCTORS_DATA) {
                 const count = saturdayShiftCounts[docId];
                 if (count > 1) {
                     const overloadInstances = count - 1;
-                    penaltyScore += overloadInstances * 750;
+                    penaltyScore += overloadInstances * 300; 
                     saturdayOverloadCount += overloadInstances;
                 }
             }
@@ -821,16 +852,17 @@
                 const { min, max } = DOCTORS_DATA[docId];
                 return (max - min) > 0 ? (count - min) / (max - min) : 0;
             });
-            penaltyScore += calculateStdDev(normalizedShiftCounts) * 500;
-            explanation.penalties.push("Included standard penalties for Saturday and normalized workload distribution");
+            const distPenalty = calculateStdDev(normalizedShiftCounts) * 300;
+            penaltyScore += distPenalty;
+            explanation.penalties.push(`Added ${distPenalty.toFixed(0)} pts for workload distribution variance`);
             
+            // --- BONUSES ---
             const totalAssignedShifts = Object.values(doctorShiftCounts).reduce((sum, count) => sum + count, 0);
             bonusScore += totalAssignedShifts * 10;
             explanation.bonuses.push(`Rewarded for having ${totalAssignedShifts} total assigned shifts`);
 
             if (enableSpecialRules) {
                 let doubleShiftPenaltyCount = 0, doubleShiftBonusCount = 0, midMonthBonusCount = 0;
-                const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
                 Object.entries(schedule).forEach(([date, dayShifts]) => {
                     const morningDoc = dayShifts.morning;
                     if (morningDoc && morningDoc === dayShifts.afternoon) {
@@ -850,8 +882,9 @@
                         });
                     }
                 });
-                if (doubleShiftPenaltyCount > 0) { penaltyScore += doubleShiftPenaltyCount * 350; explanation.penalties.push(`Contained ${doubleShiftPenaltyCount} discouraged double shift(s)`); }
-                if (doubleShiftBonusCount > 0) { bonusScore += doubleShiftBonusCount * 2; explanation.bonuses.push(`Awarded for ${doubleShiftBonusCount} preferred double shift(s)`); }
+                
+                if (doubleShiftPenaltyCount > 0) { penaltyScore += doubleShiftPenaltyCount * 200; explanation.penalties.push(`Contained ${doubleShiftPenaltyCount} discouraged double shift(s)`); }
+                if (doubleShiftBonusCount > 0) { bonusScore += doubleShiftBonusCount * 150; explanation.bonuses.push(`Awarded for ${doubleShiftBonusCount} preferred double shift(s)`); }
                 if (midMonthBonusCount > 0) { bonusScore += midMonthBonusCount * 20; explanation.bonuses.push(`Awarded for ${midMonthBonusCount} mid-month preference shift(s)`); }
             }
             
@@ -873,6 +906,7 @@
             let currentSchedule = {};
             const allShifts = [];
             const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+            
             for (let day = 1; day <= daysInMonth; day++) {
                 const date = new Date(currentYear, currentMonth, day);
                 const dateString = date.toISOString().split('T')[0];
@@ -925,26 +959,63 @@
             let bestScore = calculateScheduleBadness(bestSchedule);
 
             for (let i = 0; i < INTERNAL_ITERATIONS_PER_SCHEDULE_GEN; i++) {
-                if (allShifts.length === 0) break;
-                const shift = allShifts[Math.floor(Math.random() * allShifts.length)];
-                let tempSchedule = JSON.parse(JSON.stringify(bestSchedule));
+                if (allShifts.length < 2) break;
                 
-                const originalDoc = tempSchedule[shift.date][shift.type];
-                if (originalDoc && DOCTORS_DATA[originalDoc].daysOn[shift.date]) continue;
-
-                const candidates = Object.keys(DOCTORS_DATA).filter(id => isDoctorAvailableForShift(id, shift));
-                candidates.push(null);
-                const newDoc = candidates[Math.floor(Math.random() * candidates.length)];
-
-                tempSchedule[shift.date][shift.type] = newDoc;
-                if (newDoc && getScheduleMetrics(tempSchedule).doctorShiftCounts[newDoc] > DOCTORS_DATA[newDoc].max) continue;
+                const isSwap = Math.random() < 0.70; 
                 
-                const newScore = calculateScheduleBadness(tempSchedule);
-                if (isScoreBetter(newScore, bestScore)) {
-                    bestSchedule = tempSchedule;
-                    bestScore = newScore;
+                if (isSwap) {
+                    const shift1 = allShifts[Math.floor(Math.random() * allShifts.length)];
+                    const shift2 = allShifts[Math.floor(Math.random() * allShifts.length)];
+                    if (shift1.date === shift2.date) continue;
+                    
+                    const doc1 = bestSchedule[shift1.date][shift1.type];
+                    const doc2 = bestSchedule[shift2.date][shift2.type];
+
+                    if ((doc1 && DOCTORS_DATA[doc1].daysOn[shift1.date]) || (doc2 && DOCTORS_DATA[doc2].daysOn[shift2.date])) continue;
+                    if (doc1 && !isDoctorAvailableForShift(doc1, shift2)) continue;
+                    if (doc2 && !isDoctorAvailableForShift(doc2, shift1)) continue;
+
+                    bestSchedule[shift1.date][shift1.type] = doc2;
+                    bestSchedule[shift2.date][shift2.type] = doc1;
+                    
+                    const newScore = calculateScheduleBadness(bestSchedule);
+                    
+                    if (isScoreBetter(newScore, bestScore) || (newScore.penalty === bestScore.penalty && newScore.bonus === bestScore.bonus && Math.random() < 0.1)) {
+                        bestScore = newScore; 
+                    } else {
+                        bestSchedule[shift1.date][shift1.type] = doc1;
+                        bestSchedule[shift2.date][shift2.type] = doc2;
+                    }
+
+                } else {
+                    const shift = allShifts[Math.floor(Math.random() * allShifts.length)];
+                    const originalDoc = bestSchedule[shift.date][shift.type];
+                    
+                    if (originalDoc && DOCTORS_DATA[originalDoc].daysOn[shift.date]) continue;
+
+                    const candidates = Object.keys(DOCTORS_DATA).filter(id => isDoctorAvailableForShift(id, shift));
+                    candidates.push(null);
+                    const newDoc = candidates[Math.floor(Math.random() * candidates.length)];
+
+                    if (originalDoc === newDoc) continue;
+
+                    bestSchedule[shift.date][shift.type] = newDoc;
+                    
+                    if (newDoc && getScheduleMetrics(bestSchedule).doctorShiftCounts[newDoc] > DOCTORS_DATA[newDoc].max) {
+                        bestSchedule[shift.date][shift.type] = originalDoc; 
+                        continue;
+                    }
+                    
+                    const newScore = calculateScheduleBadness(bestSchedule);
+                    
+                    if (isScoreBetter(newScore, bestScore)) {
+                        bestScore = newScore; 
+                    } else {
+                        bestSchedule[shift.date][shift.type] = originalDoc; 
+                    }
                 }
             }
+            
             return calculateScheduleBadness(bestSchedule);
         }
 
@@ -960,19 +1031,21 @@
                 const shift2 = allShifts[Math.floor(Math.random() * allShifts.length)];
                 if (shift1.date === shift2.date) continue;
                 
-                let tempSchedule = JSON.parse(JSON.stringify(bestSchedule));
-                const doc1 = tempSchedule[shift1.date][shift1.type];
-                const doc2 = tempSchedule[shift2.date][shift2.type];
+                const doc1 = bestSchedule[shift1.date][shift1.type];
+                const doc2 = bestSchedule[shift2.date][shift2.type];
 
                 if ((doc1 && DOCTORS_DATA[doc1].daysOn[shift1.date]) || (doc2 && DOCTORS_DATA[doc2].daysOn[shift2.date])) continue;
                 
-                tempSchedule[shift1.date][shift1.type] = doc2;
-                tempSchedule[shift2.date][shift2.type] = doc1;
+                bestSchedule[shift1.date][shift1.type] = doc2;
+                bestSchedule[shift2.date][shift2.type] = doc1;
                 
-                const result = calculateScheduleBadness(tempSchedule);
+                const result = calculateScheduleBadness(bestSchedule);
+                
                 if (isScoreBetter(result, currentBest)) {
-                    currentBest = result;
-                    bestSchedule = JSON.parse(JSON.stringify(tempSchedule));
+                    currentBest = result; 
+                } else {
+                    bestSchedule[shift1.date][shift1.type] = doc1;
+                    bestSchedule[shift2.date][shift2.type] = doc2;
                 }
             }
             return calculateScheduleBadness(bestSchedule);
@@ -1085,7 +1158,6 @@
                 
                 displayVariant('variant1');
                 
-                // Show full analysis UI when generation completes
                 dom.statisticsPanel.classList.remove('hidden');
                 dom.variantSelectionControls.classList.remove('hidden');
                 dom.calendarContainerWrapper.classList.remove('lg:col-span-12');
@@ -1115,7 +1187,6 @@
         }
         
         function generatePrintableHTML() {
-            // Use the live state for all printing data and metrics
             const scoreData = calculateScheduleBadness(state.schedule);
             const { schedule, penalty, explanation } = scoreData;
             const { doctorShiftCounts } = getScheduleMetrics(schedule);
@@ -1126,7 +1197,6 @@
                 `${currentSelectedVariant.replace('variant', 'V ')} (Final)`;
             
             const scoreDisplay = penalty === Infinity ? 'HARD VIOLATION (0%)' : convertScoreToPercentage(penalty).toFixed(0) + '%';
-
 
             let explanationHTML = `<div class="breakdown-section"><h3>Score Breakdown</h3>`;
             if (penalty === Infinity) {
@@ -1212,11 +1282,9 @@
             const printWindow = window.open('', '_blank');
             
             if (printWindow) {
-                 // Write the HTML to the new window
                 printWindow.document.write(printableHTML);
                 printWindow.document.close();
                 
-                // Add a slight delay using onload/setTimeout for robust printing on all variants
                 printWindow.onload = function() {
                      printWindow.focus();
                      printWindow.print();
@@ -1237,15 +1305,12 @@
             currentSelectedVariant = variantId;
             const data = ALL_GENERATED_VARIANTS[variantId];
             
-            // Deep clone the schedule from the ALL_GENERATED_VARIANTS pool into the live state
             state.schedule = JSON.parse(JSON.stringify(data.schedule));
             
-            // Update the UI
             renderCalendar();
             renderStatistics();
             dom.logContent.innerHTML = '';
             
-            // Update radio button
             const radioEl = dom.variantRadios.querySelector(`input[value="${variantId}"]`);
             if (radioEl) {
                 radioEl.checked = true;
